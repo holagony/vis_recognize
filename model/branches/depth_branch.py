@@ -144,10 +144,7 @@ class SimpleSceneDepthBranch(nn.Module):
             
             try:
                 self.load_state_dict(state_dict, strict=True)
-                print(f"成功加载权重文件: {model_weight_path}")
-            except RuntimeError as e:
-                print(f"权重加载失败: {e}")
-                print("尝试非严格模式加载...")
+            except:
                 self.load_state_dict(state_dict, strict=False)
 
         if freeze_weights:
@@ -164,5 +161,5 @@ class SimpleSceneDepthBranch(nn.Module):
         d2 = self.dec2(d3, skips['skip2'])
         d1 = self.dec1(d2, skips['skip1'])
         features_before_final_conv = self.final_upsample(d1)
-        # final_conv = self.final_conv(features_before_final_conv)
-        return features_before_final_conv
+        final_conv = self.final_conv(features_before_final_conv)
+        return final_conv

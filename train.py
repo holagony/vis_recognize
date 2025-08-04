@@ -164,11 +164,11 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, accumulatio
         if (batch_idx + 1) % accumulation_steps == 0:
             if scaler is not None:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.GRADIENT_CLIP_NORM)
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.GRADIENT_CLIP_NORM)
                 optimizer.step()
             optimizer.zero_grad()
         
@@ -246,8 +246,16 @@ def main():
     parser = argparse.ArgumentParser(description='Vis Training')
     parser.add_argument('--resume', type=str, help='恢复训练的检查点路径')
     parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal'], default='crossentropy')
-    parser.add_argument('--weighted_sampler', default=True)
-    parser.add_argument('--seed', type=int, default=42, help='随机种子')
+    parser.add_argument('--weighted_sampler', action='store_true', help='是否使用加权采样器')
+    parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重')
+
+    # 有default
+    parser.add_argument('--weight_mode', type=str, choices=['balanced', 'sqrt_balanced', 'log_balanced'], default=config.WEIGHT_MODE)
+    parser.add_argument('--smooth_factor', type=float, default=config.SMOOTH_FACTOR)
+    parser.add_argument('--focal_gamma', type=float, default=config.FOCAL_GAMMA)
+    parser.add_argument('--focal_alpha', type=str, default=config.FOCAL_ALPHA)
+    parser.add_argument('--label_smoothing', type=float, default=config.LABEL_SMOOTHING)
+    parser.add_argument('--seed', type=int, default=3407, help='随机种子')
     args = parser.parse_args()
     
     # 设置全局随机种子
@@ -291,7 +299,11 @@ def main():
     
     logger.info(f"随机种子: {args.seed}")
     logger.info(f"训练集大小: {len(train_dataset)}, 验证集大小: {len(val_dataset)}")
-    logger.info(f"批次大小: {config.BATCH_SIZE}, 是否使用加权采样器: {args.weighted_sampler}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
+    logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
+    logger.info(f"加权策略: 采样器={args.weighted_sampler}, 损失权重={args.weighted_loss}")
+    if args.weighted_loss:
+        logger.info(f"权重模式: {args.weight_mode}, 平滑因子: {args.smooth_factor}")
+    logger.info(f"损失函数: {args.loss_type}" + (f", gamma={args.focal_gamma}" if args.loss_type == 'focal' else ""))
     
     # 创建模型
     logger.info("正在初始化模型...")
@@ -299,10 +311,50 @@ def main():
     model = VisMFN(**model_kwargs)
     model_config = model_kwargs.copy()
         
+    # 避免双重加权的建议：如果使用加权采样器，建议不使用损失函数权重
+    if args.weighted_sampler and args.weighted_loss:
+        logger.warning("警告：同时使用加权采样器和损失函数权重可能导致双重加权，建议只使用其中一种")
+    
+    # 处理focal_alpha参数
+    try:
+        focal_alpha = float(args.focal_alpha)
+    except ValueError:
+        focal_alpha = args.focal_alpha  # 'auto'等字符串值
+    
     # loss和优化器
-    criterion = create_loss_function(train_labels, args.loss_type, 1, 2, args.weighted_sampler)
-    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.01, betas=(0.9, 0.999))
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.EPOCHS, eta_min=1e-6)
+    criterion = create_loss_function(
+        train_labels, 
+        loss_type=args.loss_type, 
+        alpha=focal_alpha, 
+        gamma=args.focal_gamma,
+        use_weights=args.weighted_loss,
+        weight_mode=args.weight_mode,
+        smooth_factor=args.smooth_factor,
+        label_smoothing=args.label_smoothing
+        )
+    # 使用配置文件中的优化器参数
+    optimizer = optim.AdamW(
+        model.parameters(), 
+        lr=config.LEARNING_RATE, 
+        weight_decay=config.WEIGHT_DECAY, 
+        betas=config.BETAS,
+        eps=config.EPS)
+    
+    # 带预热的学习率调度器
+    def get_lr_scheduler(optimizer, warmup_epochs, total_epochs, eta_min):
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                # 预热阶段：线性增长
+                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
+            else:
+                # 余弦退火阶段
+                cos_epoch = epoch - warmup_epochs
+                cos_total = total_epochs - warmup_epochs
+                return eta_min + (1 - eta_min) * 0.5 * (1 + np.cos(np.pi * cos_epoch / cos_total))
+        
+        return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
+    scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN / config.LEARNING_RATE)
     
     # 混合精度训练
     scaler = GradScaler(device='cuda') if torch.cuda.is_available() else None
@@ -310,6 +362,7 @@ def main():
     # 训练变量
     start_epoch = 0
     best_accuracy = 0.0
+    patience_counter = 0  # 早停计数器
     
     # 恢复训练
     if args.resume and os.path.exists(args.resume):
@@ -340,15 +393,24 @@ def main():
         logger.info(f'Epoch [{epoch+1}/{config.EPOCHS}] - Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%')
         logger.info(f'内存使用 - RAM: {memory_usage["ram"]}, GPU: {memory_usage["gpu"]}')
         
-        # 保存最佳模型
-        if val_acc > best_accuracy:
+        # 保存最佳模型和早停检查
+        if val_acc > best_accuracy + config.MIN_DELTA:
             best_accuracy = val_acc
+            patience_counter = 0  # 重置计数器
             best_model_path = os.path.join(config.MODEL_OUTPUT_DIR, 'vis_mfn_best.pth')
             save_checkpoint(model, optimizer, epoch, val_acc, best_accuracy, model_config, best_model_path)
             logger.info(f'新的最佳模型已保存 (准确率: {val_acc:.2f}%)')
+        else:
+            patience_counter += 1
+            logger.info(f'验证准确率未改善，早停计数器: {patience_counter}/{config.EARLY_STOP_PATIENCE}')
+        
+        # 早停检查
+        if patience_counter >= config.EARLY_STOP_PATIENCE:
+            logger.info(f'连续{config.EARLY_STOP_PATIENCE}轮验证准确率未改善，触发早停')
+            break
         
         # 定期保存检查点
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % config.SAVE_CHECKPOINT_EVERY == 0:
             checkpoint_path = os.path.join(config.MODEL_OUTPUT_DIR, f'vis_mfn_epoch_{epoch+1}.pth')
             save_checkpoint(model, optimizer, epoch, val_acc, best_accuracy, model_config, checkpoint_path)
     
