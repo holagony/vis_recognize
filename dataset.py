@@ -5,8 +5,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import functional as TF
 import torchvision.transforms as T
 from PIL import Image
-from utils.config import TARGET_INPUT_SIZE, NORM_MEAN, NORM_STD
-
+from utils import config
 
 class InputResize:
     """
@@ -55,144 +54,28 @@ class InputResize:
         return img_padded
 
 
-class VisAugmentation:
-    """
-    针对能见度识别的数据增强
-    """
-    def __init__(self, label):
-        self.label = label  # 能见度等级标签
-    
-    def __call__(self, img):
-        """根据能见度等级进行智能增强"""
-        # 转换为numpy数组便于处理
-        img_array = np.array(img)
-        
-        # 根据能见度等级调整增强策略
-        if self.label == 0:  # 极低能见度
-            img_array = self._simulate_low_visibility(img_array)
-        elif self.label == 1:  # 低能见度
-            img_array = self._simulate_medium_low_visibility(img_array)
-        elif self.label == 2:  # 中等能见度
-            img_array = self._simulate_medium_visibility(img_array)
-        elif self.label == 3:  # 高能见度
-            img_array = self._simulate_high_visibility(img_array)
-        # label == 4 (极高能见度) 保持原样
-        
-        return Image.fromarray(img_array)
-    
-    def _simulate_low_visibility(self, img):
-        """模拟极低能见度条件"""
-        # 大幅降低对比度和亮度
-        img = img * 0.3  # 降低亮度
-        img = np.clip(img, 0, 255).astype(np.uint8)
-        
-        # 添加雾霾效果
-        if random.random() < 0.7:
-            img = self._add_fog_effect(img, intensity=0.8)
-        
-        return img
-    
-    def _simulate_medium_low_visibility(self, img):
-        """模拟低能见度条件"""
-        # 适度降低对比度和亮度
-        img = img * 0.6
-        img = np.clip(img, 0, 255).astype(np.uint8)
-        
-        # 轻微雾霾效果
-        if random.random() < 0.5:
-            img = self._add_fog_effect(img, intensity=0.4)
-        
-        return img
-    
-    def _simulate_medium_visibility(self, img):
-        """模拟中等能见度条件"""
-        # 轻微降低对比度
-        img = img * 0.8
-        img = np.clip(img, 0, 255).astype(np.uint8)
-        
-        # 轻微雾霾效果
-        if random.random() < 0.3:
-            img = self._add_fog_effect(img, intensity=0.2)
-        
-        return img
-    
-    def _simulate_high_visibility(self, img):
-        """模拟高能见度条件"""
-        # 轻微提升对比度
-        img = img * 1.1
-        img = np.clip(img, 0, 255).astype(np.uint8)
-        
-        return img
-    
-    def _add_fog_effect(self, img, intensity=0.5):
-        """添加雾霾效果"""
-        h, w = img.shape[:2]
-        
-        # 创建雾霾层
-        fog = np.ones((h, w, 3), dtype=np.uint8) * 200  # 白色雾霾
-        
-        # 根据距离中心点的距离调整雾霾强度
-        center_y, center_x = h // 2, w // 2
-        y, x = np.ogrid[:h, :w]
-        distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-        max_distance = np.sqrt(center_x**2 + center_y**2)
-        
-        # 距离越远，雾霾越浓
-        fog_factor = distance / max_distance * intensity
-        fog_factor = np.clip(fog_factor, 0, 1)
-        
-        # 应用雾霾效果
-        fog_factor = np.stack([fog_factor] * 3, axis=2)
-        img = img * (1 - fog_factor) + fog * fog_factor
-        
-        return img.astype(np.uint8)
-
-
-class EnvironmentalNoiseTransform:
-    """
-    可序列化的环境噪声变换类，替代Lambda函数
-    """
-    def __init__(self, noise_prob=0.2, noise_std=0.01):
-        self.noise_prob = noise_prob
-        self.noise_std = noise_std
-    
-    def __call__(self, img):
-        """
-        添加环境噪声，模拟真实摄像头环境
-        """
-        if random.random() < self.noise_prob:  # 默认20%概率添加噪声
-            img_array = TF.to_tensor(img)
-            noise = torch.randn_like(img_array) * self.noise_std
-            img_array = torch.clamp(img_array + noise, 0, 1)
-            img = TF.to_pil_image(img_array)
-        return img
-
-
 class VisibilityDataset(Dataset):
     """
     高速公路能见度数据集处理
     """
-    def __init__(self, image_paths, labels, is_train=True, augment=True):
+    def __init__(self, image_paths, labels, is_train=True, augment=False):
         self.image_paths = image_paths
         self.labels = labels
         self.is_train = is_train
         self.augment = augment
-        self.target_size = TARGET_INPUT_SIZE
+        self.target_size = config.TARGET_INPUT_SIZE
         self.base_transform = InputResize(self.target_size) # 尺寸变换
-        self.normalize_transform = T.Compose([T.ToTensor(), T.Normalize(mean=NORM_MEAN, std=NORM_STD)]) # 标准化变换
+        self.normalize_transform = T.Compose([T.ToTensor(), T.Normalize(mean=config.NORM_MEAN, std=config.NORM_STD)]) # 标准化变换
 
-        # 数据增强变换
+        # 数据增强变换（默认不使用）
         if self.is_train and self.augment:
+            # 保守的数据增强策略（可选）
             self.augment_transform = T.Compose([
-                T.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.02, hue=0.01), # 轻微的颜色调整，避免过度影响能见度判断
-                T.RandomHorizontalFlip(p=0.3), # 水平翻转（高速公路场景通常可以翻转）
-                T.RandomRotation(degrees=2, fill=128),  # 使用灰色填充，角度更小
-                T.GaussianBlur(kernel_size=3, sigma=(0.1, 0.3)), # 轻微模糊，模拟不同能见度条件
-                EnvironmentalNoiseTransform()]) # 添加轻微噪声，模拟真实环境
+                T.RandomHorizontalFlip(p=0.5),  # 只保留最安全的水平翻转
+                T.ColorJitter(brightness=0.05, contrast=0.05)  # 极轻微的颜色调整
+            ])
         else:
             self.augment_transform = None
-
-
 
     def __len__(self):
         return len(self.image_paths)
@@ -203,22 +86,16 @@ class VisibilityDataset(Dataset):
 
         try:
             image = Image.open(image_path).convert('RGB')
-            image = self.base_transform(image) # 尺寸调整
-            original_size = None
-            if hasattr(image, 'original_size'):
-                original_size = image.original_size
-
-            if self.augment_transform is not None: # 数据增强（仅训练时）
+            
+            # 统一使用基础变换（尺寸调整）
+            image = self.base_transform(image)
+            
+            # 可选的数据增强（默认不使用）
+            if self.augment_transform is not None:
                 image = self.augment_transform(image)
-                # visibility_aug = VisAugmentation(label) # 根据能见度等级进行智能增强
-                # image = visibility_aug(image)
 
             # 标准化
             image = self.normalize_transform(image)
-            
-            # 如果有原始尺寸信息，将其附加到tensor上
-            if original_size is not None:
-                image.original_size = original_size
 
             return image, label
 

@@ -35,10 +35,9 @@ BETAS = (0.9, 0.999)              # Adam动量参数
 EPS = 1e-8                        # Adam epsilon
 
 # --- 学习率调度超参数 ---
-WARMUP_EPOCHS = 5                 # 学习率预热轮数
-WARMUP_FACTOR = 0.1               # 预热起始因子
+WARMUP_EPOCHS = 3                 # 减少预热轮数
+WARMUP_FACTOR = 0.2               # 提高起始因子，避免过度保守
 LR_SCHEDULE_TYPE = 'cosine_warmup' # 使用带预热的余弦调度
-T_MAX = 55                        # 余弦调度的最大轮数（总轮数-预热轮数）
 ETA_MIN = 2e-5                    # 最小学习率，避免过小影响收敛
 
 # --- 正则化超参数 ---
@@ -59,13 +58,6 @@ FOCAL_GAMMA = 2.0                      # 标准Focal Loss的gamma，适合中等
 FOCAL_ALPHA = 1.0                     # 标准Focal Loss alpha参数
 WEIGHT_MODE = 'sqrt_balanced'          # 平方根平衡权重，缓解不平衡影响
 SMOOTH_FACTOR = 0.1                    # 减少平滑因子，保持类别区分度
-
-# --- 数据增强超参数 ---
-AUGMENTATION_PROB = 0.6               # 数据增强概率
-BRIGHTNESS_RANGE = 0.15               # 亮度调整范围
-CONTRAST_RANGE = 0.15                 # 对比度调整范围
-SATURATION_RANGE = 0.15               # 饱和度调整范围，增加数据多样性
-HUE_RANGE = 0.05                      # 色调调整范围
 
 # --- channel数量 --- 
 SFRB_OUT_CHANNELS = 64    # 11->64，初始特征提取
