@@ -57,10 +57,34 @@ def setup_logging(output_dir):
     """
     os.makedirs(output_dir, exist_ok=True)
     log_file = os.path.join(output_dir, f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s - %(message)s',
-                        handlers=[logging.FileHandler(log_file, encoding='utf-8'), logging.StreamHandler()])
-    return logging.getLogger(__name__)
+    
+    # 清除已有的handlers，避免重复日志
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    # 设置日志格式
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    
+    # 文件处理器 - 强制立即刷新
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+    
+    # 控制台处理器 - 强制立即刷新
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+    
+    # 配置根logger
+    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
+    logger = logging.getLogger(__name__)
+    
+    # 强制立即刷新所有日志
+    for handler in logger.handlers:
+        if hasattr(handler, 'flush'):
+            handler.flush()
+    
+    return logger
 
 
 def get_memory_usage():
@@ -362,7 +386,6 @@ def main():
     # 训练变量
     start_epoch = 0
     best_accuracy = 0.0
-    patience_counter = 0  # 早停计数器
     
     # 恢复训练
     if args.resume and os.path.exists(args.resume):
@@ -373,6 +396,28 @@ def main():
         start_epoch = checkpoint['epoch'] + 1
         best_accuracy = checkpoint.get('best_accuracy', 0.0)
         logger.info(f"恢复训练从第 {start_epoch} 轮开始，当前最佳准确率: {best_accuracy:.4f}")
+    
+    # 将模型移动到设备
+    model = model.to(config.DEVICE)
+    logger.info(f"模型已移动到设备: {config.DEVICE}")
+    
+    # 在TensorBoard中可视化网络结构
+    try:
+        logger.info("正在生成网络结构图...")
+        # 创建示例输入张量
+        dummy_input = torch.randn(1, 3, config.TARGET_IMG_HEIGHT, config.TARGET_IMG_WIDTH).to(config.DEVICE)
+        
+        # 使用add_graph添加网络结构到TensorBoard
+        tb_writer.add_graph(model, dummy_input)
+        logger.info("网络结构图已添加到TensorBoard")
+        logger.info(f"📊 启动TensorBoard查看网络结构：tensorboard --logdir={os.path.join(config.MODEL_OUTPUT_DIR, 'tensorboard')}")
+        
+        # 立即刷新TensorBoard
+        tb_writer.flush()
+        
+    except Exception as e:
+        logger.warning(f"生成网络结构图时出现错误: {e}")
+        logger.warning("训练将继续进行，但网络结构图未生成")
     
     # 训练循环
     logger.info("开始训练...")
@@ -388,29 +433,40 @@ def main():
         tb_writer.add_scalar('Accuracy/Validation', val_acc, epoch)
         tb_writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
         
+        # 每5个epoch记录模型参数分布（避免过度占用存储空间）
+        if (epoch + 1) % 5 == 0:
+            try:
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        # 记录参数值分布
+                        tb_writer.add_histogram(f'Parameters/{name}', param.data, epoch)
+                        # 记录梯度分布  
+                        tb_writer.add_histogram(f'Gradients/{name}', param.grad.data, epoch)
+                        # 记录参数范数
+                        tb_writer.add_scalar(f'ParamNorms/{name}', param.data.norm().item(), epoch)
+                        tb_writer.add_scalar(f'GradNorms/{name}', param.grad.data.norm().item(), epoch)
+            except Exception as e:
+                logger.warning(f"记录参数分布时出现错误: {e}")
+        
         # 获取内存使用情况
         memory_usage = get_memory_usage()
         logger.info(f'Epoch [{epoch+1}/{config.EPOCHS}] - Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%')
         logger.info(f'内存使用 - RAM: {memory_usage["ram"]}, GPU: {memory_usage["gpu"]}')
         
-        # 保存最佳模型和早停检查
-        if val_acc > best_accuracy + config.MIN_DELTA:
+        # 强制刷新日志缓冲区，确保实时写入
+        for handler in logger.handlers:
+            if hasattr(handler, 'flush'):
+                handler.flush()
+        
+        # 保存最佳模型
+        if val_acc > best_accuracy:
             best_accuracy = val_acc
-            patience_counter = 0  # 重置计数器
             best_model_path = os.path.join(config.MODEL_OUTPUT_DIR, 'vis_mfn_best.pth')
             save_checkpoint(model, optimizer, epoch, val_acc, best_accuracy, model_config, best_model_path)
             logger.info(f'新的最佳模型已保存 (准确率: {val_acc:.2f}%)')
-        else:
-            patience_counter += 1
-            logger.info(f'验证准确率未改善，早停计数器: {patience_counter}/{config.EARLY_STOP_PATIENCE}')
-        
-        # 早停检查
-        if patience_counter >= config.EARLY_STOP_PATIENCE:
-            logger.info(f'连续{config.EARLY_STOP_PATIENCE}轮验证准确率未改善，触发早停')
-            break
         
         # 定期保存检查点
-        if (epoch + 1) % config.SAVE_CHECKPOINT_EVERY == 0:
+        if (epoch + 1) % 3 == 0:
             checkpoint_path = os.path.join(config.MODEL_OUTPUT_DIR, f'vis_mfn_epoch_{epoch+1}.pth')
             save_checkpoint(model, optimizer, epoch, val_acc, best_accuracy, model_config, checkpoint_path)
     

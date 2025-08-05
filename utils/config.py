@@ -30,7 +30,7 @@ LEARNING_RATE = 2e-4
 NUM_CLASSES = 5
 
 # --- 优化器超参数 ---
-WEIGHT_DECAY = 0.005              # 减少权重衰减，避免过度正则化
+WEIGHT_DECAY = 0.01               # 适中的权重衰减，平衡正则化和性能
 BETAS = (0.9, 0.999)              # Adam动量参数
 EPS = 1e-8                        # Adam epsilon
 
@@ -39,16 +39,11 @@ WARMUP_EPOCHS = 5                 # 学习率预热轮数
 WARMUP_FACTOR = 0.1               # 预热起始因子
 LR_SCHEDULE_TYPE = 'cosine_warmup' # 使用带预热的余弦调度
 T_MAX = 55                        # 余弦调度的最大轮数（总轮数-预热轮数）
-ETA_MIN = 1e-6                    # 最小学习率
+ETA_MIN = 2e-5                    # 最小学习率，避免过小影响收敛
 
 # --- 正则化超参数 ---
-GRADIENT_CLIP_NORM = 2.0          # 增加梯度裁剪阈值
+GRADIENT_CLIP_NORM = 1.0          # 标准梯度裁剪阈值，适合稳定训练
 LABEL_SMOOTHING = 0.1             # 标签平滑
-
-# --- 早停和模型保存 ---
-EARLY_STOP_PATIENCE = 8           # 早停耐心值
-SAVE_CHECKPOINT_EVERY = 3         # 每3轮保存检查点
-MIN_DELTA = 0.001                 # 早停最小改进阈值
 
 # --- 特征分支参数 ---
 TRANSMISSION_OMEGA = 0.95
@@ -60,16 +55,16 @@ DETAIL_GUIDED_EPS = 0.02**2
 SPECTRAL_ENHANCEMENT_FACTOR = 2.2      # 轻微增加光谱增强
 
 # --- 损失函数超参数 ---
-FOCAL_GAMMA = 2.5                      # 增加Focal Loss的gamma
-FOCAL_ALPHA = 1.0                      # 标准alpha，不使用auto权重
-WEIGHT_MODE = 'sqrt_balanced'          # 平方根平衡权重（备用）
-SMOOTH_FACTOR = 0.25                   # 权重平滑因子（备用）
+FOCAL_GAMMA = 2.0                      # 标准Focal Loss的gamma，适合中等不平衡
+FOCAL_ALPHA = 1.0                     # 标准Focal Loss alpha参数
+WEIGHT_MODE = 'sqrt_balanced'          # 平方根平衡权重，缓解不平衡影响
+SMOOTH_FACTOR = 0.1                    # 减少平滑因子，保持类别区分度
 
 # --- 数据增强超参数 ---
 AUGMENTATION_PROB = 0.6               # 数据增强概率
 BRIGHTNESS_RANGE = 0.15               # 亮度调整范围
 CONTRAST_RANGE = 0.15                 # 对比度调整范围
-SATURATION_RANGE = 0.1                # 饱和度调整范围
+SATURATION_RANGE = 0.15               # 饱和度调整范围，增加数据多样性
 HUE_RANGE = 0.05                      # 色调调整范围
 
 # --- channel数量 --- 
