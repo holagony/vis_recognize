@@ -14,6 +14,7 @@ from datetime import datetime
 from collections import Counter
 from tqdm import tqdm
 import psutil
+from sklearn.metrics import balanced_accuracy_score, classification_report, confusion_matrix
 from model.vis_mfn import VisMFN
 from model.loss import create_loss_function
 from dataset import VisibilityDataset, collate_fn_filter_none
@@ -100,6 +101,62 @@ def get_memory_usage():
     return {'ram': f"{memory_info.rss / 1024**3:.2f}GB", 'gpu': gpu_memory}
 
 
+def calculate_metrics(y_true, y_pred, num_classes=5):
+    """
+    计算详细的分类指标，特别适合不平衡数据集
+    
+    Args:
+        y_true: 真实标签
+        y_pred: 预测标签  
+        num_classes: 类别数量
+    
+    Returns:
+        dict: 包含各种指标的字典
+    """
+    # 转换为numpy数组
+    if torch.is_tensor(y_true):
+        y_true = y_true.cpu().numpy()
+    if torch.is_tensor(y_pred):
+        y_pred = y_pred.cpu().numpy()
+    
+    # 总体准确率
+    overall_acc = np.mean(y_true == y_pred) * 100
+    
+    # 平衡准确率（各类别召回率的平均值）
+    balanced_acc = balanced_accuracy_score(y_true, y_pred) * 100
+    
+    # 各类别准确率
+    class_accuracies = []
+    class_recalls = []
+    class_precisions = []
+    
+    for i in range(num_classes):
+        # 类别i的样本
+        class_mask = (y_true == i)
+        if class_mask.sum() > 0:  # 如果该类别有样本
+            class_acc = np.mean(y_pred[class_mask] == i) * 100  # 召回率
+            class_recalls.append(class_acc)
+        else:
+            class_recalls.append(0.0)
+        
+        # 类别i的精确率
+        pred_mask = (y_pred == i)
+        if pred_mask.sum() > 0:
+            class_prec = np.mean(y_true[pred_mask] == i) * 100
+            class_precisions.append(class_prec)
+        else:
+            class_precisions.append(0.0)
+    
+    return {
+        'overall_accuracy': overall_acc,
+        'balanced_accuracy': balanced_acc,
+        'class_recalls': class_recalls,
+        'class_precisions': class_precisions,
+        'mean_recall': np.mean(class_recalls),
+        'mean_precision': np.mean(class_precisions)
+    }
+
+
 def img_dataloader(data_dir_path):
     """
     从已按类别分子文件夹的目录中加载图像路径和标签
@@ -155,8 +212,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, accumulatio
     """
     model.train()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    all_predictions = []
+    all_labels = []
     optimizer.zero_grad()  # 在epoch开始时清零梯度
 
     pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}' if epoch is not None else 'Training')
@@ -198,12 +255,14 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, accumulatio
         
         running_loss += loss.item() * accumulation_steps  # 恢复原始损失值用于记录
         _, predicted = torch.max(outputs, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        
+        # 收集预测和标签用于详细指标计算
+        all_predictions.extend(predicted.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
         
         # 更新进度条
         current_loss = running_loss / (batch_idx + 1)
-        current_acc = 100 * correct / total
+        current_acc = 100 * np.mean(np.array(all_predictions) == np.array(all_labels))
         pbar.set_postfix({'Loss': f'{current_loss:.4f}',
                           'Acc': f'{current_acc:.2f}%',
                           'Accum': f'{((batch_idx + 1) % accumulation_steps) + 1}/{accumulation_steps}'})
@@ -220,9 +279,11 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, accumulatio
             optimizer.step()
         optimizer.zero_grad()
     
+    # 计算详细指标
+    metrics = calculate_metrics(all_labels, all_predictions, config.NUM_CLASSES)
     avg_loss = running_loss / len(dataloader)
-    accuracy = 100 * correct / total
-    return avg_loss, accuracy
+    
+    return avg_loss, metrics
 
 
 def validate(model, dataloader, criterion, device):
@@ -231,8 +292,8 @@ def validate(model, dataloader, criterion, device):
     """
     model.eval()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    all_predictions = []
+    all_labels = []
     
     with torch.no_grad():
         for inputs, labels in dataloader:
@@ -244,12 +305,16 @@ def validate(model, dataloader, criterion, device):
             
             running_loss += loss.item()
             _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            
+            # 收集预测和标签
+            all_predictions.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
     
+    # 计算详细指标
+    metrics = calculate_metrics(all_labels, all_predictions, config.NUM_CLASSES)
     avg_loss = running_loss / len(dataloader)
-    accuracy = 100 * correct / total
-    return avg_loss, accuracy
+    
+    return avg_loss, metrics
 
 
 def save_checkpoint(model, optimizer, epoch, accuracy, best_accuracy, model_config, save_path):
@@ -422,16 +487,22 @@ def main():
     # 训练循环
     logger.info("开始训练...")
     for epoch in range(start_epoch, config.EPOCHS):
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, config.DEVICE, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler)
-        val_loss, val_acc = validate(model, val_loader, criterion, config.DEVICE)
+        train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, config.DEVICE, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler)
+        val_loss, val_metrics = validate(model, val_loader, criterion, config.DEVICE)
         scheduler.step() # update learning rate
         
-        # 结果记录
+        # 结果记录 - 使用平衡准确率作为主要指标
         tb_writer.add_scalar('Loss/Train', train_loss, epoch)
         tb_writer.add_scalar('Loss/Validation', val_loss, epoch)
-        tb_writer.add_scalar('Accuracy/Train', train_acc, epoch)
-        tb_writer.add_scalar('Accuracy/Validation', val_acc, epoch)
+        tb_writer.add_scalar('Accuracy/Train_Overall', train_metrics['overall_accuracy'], epoch)
+        tb_writer.add_scalar('Accuracy/Train_Balanced', train_metrics['balanced_accuracy'], epoch)
+        tb_writer.add_scalar('Accuracy/Val_Overall', val_metrics['overall_accuracy'], epoch)
+        tb_writer.add_scalar('Accuracy/Val_Balanced', val_metrics['balanced_accuracy'], epoch)
         tb_writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
+        
+        # 记录各类别召回率
+        for i, recall in enumerate(val_metrics['class_recalls']):
+            tb_writer.add_scalar(f'ClassRecall/Class_{i}', recall, epoch)
         
         # 每5个epoch记录模型参数分布（避免过度占用存储空间）
         if (epoch + 1) % 5 == 0:
@@ -450,29 +521,33 @@ def main():
         
         # 获取内存使用情况
         memory_usage = get_memory_usage()
-        logger.info(f'Epoch [{epoch+1}/{config.EPOCHS}] - Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%')
-        logger.info(f'内存使用 - RAM: {memory_usage["ram"]}, GPU: {memory_usage["gpu"]}')
+        logger.info(f'Epoch [{epoch+1}/{config.EPOCHS}]')
+        logger.info(f'  Train - Loss: {train_loss:.4f}, Overall Acc: {train_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {train_metrics["balanced_accuracy"]:.2f}%')
+        logger.info(f'  Val   - Loss: {val_loss:.4f}, Overall Acc: {val_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {val_metrics["balanced_accuracy"]:.2f}%')
+        logger.info(f'  Class Recalls: {[f"{r:.1f}" for r in val_metrics["class_recalls"]]}%')
+        logger.info(f'  内存使用 - RAM: {memory_usage["ram"]}, GPU: {memory_usage["gpu"]}')
         
         # 强制刷新日志缓冲区，确保实时写入
         for handler in logger.handlers:
             if hasattr(handler, 'flush'):
                 handler.flush()
         
-        # 保存最佳模型
-        if val_acc > best_accuracy:
-            best_accuracy = val_acc
+        # 保存最佳模型 - 使用平衡准确率作为评判标准
+        val_balanced_acc = val_metrics['balanced_accuracy']
+        if val_balanced_acc > best_accuracy:
+            best_accuracy = val_balanced_acc
             best_model_path = os.path.join(config.MODEL_OUTPUT_DIR, 'vis_mfn_best.pth')
-            save_checkpoint(model, optimizer, epoch, val_acc, best_accuracy, model_config, best_model_path)
-            logger.info(f'新的最佳模型已保存 (准确率: {val_acc:.2f}%)')
+            save_checkpoint(model, optimizer, epoch, val_balanced_acc, best_accuracy, model_config, best_model_path)
+            logger.info(f'🎉 新的最佳模型已保存 (平衡准确率: {val_balanced_acc:.2f}%)')
         
         # 定期保存检查点
         if (epoch + 1) % 3 == 0:
             checkpoint_path = os.path.join(config.MODEL_OUTPUT_DIR, f'vis_mfn_epoch_{epoch+1}.pth')
-            save_checkpoint(model, optimizer, epoch, val_acc, best_accuracy, model_config, checkpoint_path)
+            save_checkpoint(model, optimizer, epoch, val_balanced_acc, best_accuracy, model_config, checkpoint_path)
     
     # 保存最终模型
     final_model_path = os.path.join(config.MODEL_OUTPUT_DIR, 'vis_mfn_final.pth')
-    save_checkpoint(model, optimizer, config.EPOCHS-1, val_acc, best_accuracy, model_config, final_model_path)
+    save_checkpoint(model, optimizer, config.EPOCHS-1, val_balanced_acc, best_accuracy, model_config, final_model_path)
     
     # 关闭 TensorBoard writer
     tb_writer.close()
