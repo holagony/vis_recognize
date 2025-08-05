@@ -9,7 +9,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.utils.tensorboard import SummaryWriter
-from torch.amp import autocast, GradScaler # torch 2.0+
+from torch.amp import autocast
+
+try:
+   from torch import GradScaler        # torch >= 2.3
+except ImportError:
+   from torch.amp import GradScaler
+
 from datetime import datetime
 from collections import Counter
 from tqdm import tqdm

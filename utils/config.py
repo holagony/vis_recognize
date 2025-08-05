@@ -1,7 +1,8 @@
 import torch
 
 # --- 设备配置 ---
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda:1")
 
 # --- 深度分支预训练模型 ---
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
