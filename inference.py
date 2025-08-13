@@ -16,8 +16,8 @@ from sklearn.metrics import (confusion_matrix, classification_report, accuracy_s
 from torch.utils.data import DataLoader
 import pandas as pd
 
-from model.vis_mfn import VisMFN  
-from dataset import VisibilityDataset, InputResize, collate_fn_filter_none
+from models.vismfn.model import VisMFN  
+from datasets.dataset import VisibilityDataset, InputResize, collate_fn_filter_none
 from utils import config
 
 def setup_logging(output_dir):

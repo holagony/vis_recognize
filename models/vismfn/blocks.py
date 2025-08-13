@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.attention_modules import CBAM
+from models.vismfn.cbam import CBAM
 
 class SFRB(nn.Module):
     """

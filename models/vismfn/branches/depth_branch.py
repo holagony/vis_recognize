@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dpt.dpt.models import DPTDepthModel
+from model_hub.dptransformer.dpt.models import DPTDepthModel
 from torchvision.models import mobilenet_v2
 from torchvision.transforms import functional as TF
 

@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from model.branches.depth_branch import DPTSceneDepthBranch, SimpleSceneDepthBranch
-from model.branches.transmission_branch import TransmissionBranch
-from model.branches.spectral_branch import SpectralBranch
-from model.branches.detail_branch import DetailBranch
-from model.blocks import SFRB, MSFB, GFFB
+from models.vismfn.branches.depth_branch import DPTSceneDepthBranch, SimpleSceneDepthBranch
+from models.vismfn.branches.transmission_branch import TransmissionBranch
+from models.vismfn.branches.spectral_branch import SpectralBranch
+from models.vismfn.branches.detail_branch import DetailBranch
+from models.vismfn.blocks import SFRB, MSFB, GFFB
 from utils import config
 
 class NNClassifier(nn.Module):

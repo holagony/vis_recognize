@@ -14,16 +14,16 @@ from torch.amp import autocast
 try:
    from torch import GradScaler        # torch >= 2.3
 except ImportError:
-   from torch.amp import GradScaler
+   from torch.cuda.amp import GradScaler
 
 from datetime import datetime
 from collections import Counter
 from tqdm import tqdm
 import psutil
 from sklearn.metrics import balanced_accuracy_score, classification_report, confusion_matrix
-from model.vis_mfn import VisMFN
-from model.loss import create_loss_function
-from dataset import VisibilityDataset, collate_fn_filter_none
+from models.vismfn.model import VisMFN
+from utils.loss import create_loss_function
+from datasets.dataset import VisibilityDataset, collate_fn_filter_none
 from utils import config
 
 
@@ -125,21 +125,56 @@ def calculate_metrics(y_true, y_pred, num_classes=5):
     if torch.is_tensor(y_pred):
         y_pred = y_pred.cpu().numpy()
     
+    # 确保是1D数组
+    y_true = np.asarray(y_true).flatten()
+    y_pred = np.asarray(y_pred).flatten()
+    
+    # 确保预测标签在合法范围内，避免sklearn警告
+    y_pred = np.clip(y_pred, 0, num_classes - 1)
+    
     # 总体准确率
     overall_acc = np.mean(y_true == y_pred) * 100
     
     # 平衡准确率（各类别召回率的平均值）
+    # 使用labels参数指定所有可能的类别，避免警告
     balanced_acc = balanced_accuracy_score(y_true, y_pred) * 100
     
-    # 各类别准确率
+    # 计算F1分数（宏平均和加权平均）
+    from sklearn.metrics import f1_score
+    # 指定labels参数避免警告
+    labels = list(range(num_classes))
+    macro_f1 = f1_score(y_true, y_pred, average='macro', labels=labels, zero_division=0) * 100
+    weighted_f1 = f1_score(y_true, y_pred, average='weighted', labels=labels, zero_division=0) * 100
+    
+    # 如果没有预测结果，返回默认值
+    if len(y_true) == 0 or len(y_pred) == 0:
+        return {
+            'overall_accuracy': 0.0,
+            'balanced_accuracy': 0.0,
+            'macro_f1': 0.0,
+            'weighted_f1': 0.0,
+            'class_recalls': [0.0] * num_classes,
+            'class_precisions': [0.0] * num_classes,
+            'class_f1s': [0.0] * num_classes,
+            'mean_recall': 0.0,
+            'mean_precision': 0.0,
+            'mean_f1': 0.0,
+            'imbalance_ratio': 1.0,
+            'class_counts': [0] * num_classes
+        }
+    
+    # 各类别指标
     class_accuracies = []
     class_recalls = []
     class_precisions = []
+    class_f1s = []
     
     for i in range(num_classes):
         # 类别i的样本
         class_mask = (y_true == i)
-        if class_mask.sum() > 0:  # 如果该类别有样本
+        class_mask_sum = np.sum(class_mask) if hasattr(class_mask, 'sum') else int(class_mask)
+        
+        if class_mask_sum > 0:  # 如果该类别有样本
             class_acc = np.mean(y_pred[class_mask] == i) * 100  # 召回率
             class_recalls.append(class_acc)
         else:
@@ -147,19 +182,39 @@ def calculate_metrics(y_true, y_pred, num_classes=5):
         
         # 类别i的精确率
         pred_mask = (y_pred == i)
-        if pred_mask.sum() > 0:
+        pred_mask_sum = np.sum(pred_mask) if hasattr(pred_mask, 'sum') else int(pred_mask)
+        
+        if pred_mask_sum > 0:
             class_prec = np.mean(y_true[pred_mask] == i) * 100
             class_precisions.append(class_prec)
         else:
             class_precisions.append(0.0)
+        
+        # 类别i的F1分数
+        if class_mask_sum > 0 or pred_mask_sum > 0:
+            # 使用二分类F1计算，避免sklearn警告
+            class_f1 = f1_score(y_true == i, y_pred == i, zero_division=0) * 100
+            class_f1s.append(class_f1)
+        else:
+            class_f1s.append(0.0)
+    
+    # 计算类别不平衡指标
+    class_counts = np.bincount(y_true, minlength=num_classes)
+    imbalance_ratio = np.max(class_counts) / (np.min(class_counts) + 1e-8)  # 避免除零
     
     return {
         'overall_accuracy': overall_acc,
         'balanced_accuracy': balanced_acc,
+        'macro_f1': macro_f1,
+        'weighted_f1': weighted_f1,
         'class_recalls': class_recalls,
         'class_precisions': class_precisions,
+        'class_f1s': class_f1s,
         'mean_recall': np.mean(class_recalls),
-        'mean_precision': np.mean(class_precisions)
+        'mean_precision': np.mean(class_precisions),
+        'mean_f1': np.mean(class_f1s),
+        'imbalance_ratio': imbalance_ratio,
+        'class_counts': class_counts.tolist()
     }
 
 
@@ -266,11 +321,22 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, accumulatio
         all_predictions.extend(predicted.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
         
-        # 更新进度条
+        # 更新进度条 - 使用更适合不平衡任务的指标
         current_loss = running_loss / (batch_idx + 1)
-        current_acc = 100 * np.mean(np.array(all_predictions) == np.array(all_labels))
+        
+        # 计算当前批次的平衡准确率
+        if len(all_predictions) > 0:
+            # 确保预测标签在合法范围内，避免sklearn警告
+            clipped_predictions = np.clip(np.array(all_predictions), 0, config.NUM_CLASSES - 1)
+            current_balanced_acc = 100 * balanced_accuracy_score(all_labels, clipped_predictions)
+            current_overall_acc = 100 * np.mean(np.array(all_labels) == clipped_predictions)
+        else:
+            current_balanced_acc = 0.0
+            current_overall_acc = 0.0
+            
         pbar.set_postfix({'Loss': f'{current_loss:.4f}',
-                          'Acc': f'{current_acc:.2f}%',
+                          'Bal_Acc': f'{current_balanced_acc:.2f}%',
+                          'Overall_Acc': f'{current_overall_acc:.2f}%',
                           'Accum': f'{((batch_idx + 1) % accumulation_steps) + 1}/{accumulation_steps}'})
     
     # 处理最后一个不完整的累积批次
@@ -452,7 +518,10 @@ def main():
     scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN / config.LEARNING_RATE)
     
     # 混合精度训练
-    scaler = GradScaler(device='cuda') if torch.cuda.is_available() else None
+    try:
+        scaler = GradScaler(device='cuda') if torch.cuda.is_available() else None
+    except:
+        scaler = GradScaler() if torch.cuda.is_available() else None
     
     # 训练变量
     start_epoch = 0
@@ -504,11 +573,17 @@ def main():
         tb_writer.add_scalar('Accuracy/Train_Balanced', train_metrics['balanced_accuracy'], epoch)
         tb_writer.add_scalar('Accuracy/Val_Overall', val_metrics['overall_accuracy'], epoch)
         tb_writer.add_scalar('Accuracy/Val_Balanced', val_metrics['balanced_accuracy'], epoch)
+        tb_writer.add_scalar('F1/Val_Macro', val_metrics['macro_f1'], epoch)
+        tb_writer.add_scalar('F1/Val_Weighted', val_metrics['weighted_f1'], epoch)
         tb_writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
         
-        # 记录各类别召回率
-        for i, recall in enumerate(val_metrics['class_recalls']):
-            tb_writer.add_scalar(f'ClassRecall/Class_{i}', recall, epoch)
+        # 记录各类别指标
+        for i, (recall, precision, f1) in enumerate(zip(val_metrics['class_recalls'], 
+                                                      val_metrics['class_precisions'], 
+                                                      val_metrics['class_f1s'])):
+            tb_writer.add_scalar(f'ClassMetrics/Class_{i}_Recall', recall, epoch)
+            tb_writer.add_scalar(f'ClassMetrics/Class_{i}_Precision', precision, epoch)
+            tb_writer.add_scalar(f'ClassMetrics/Class_{i}_F1', f1, epoch)
         
         # 每5个epoch记录模型参数分布（避免过度占用存储空间）
         if (epoch + 1) % 5 == 0:
@@ -530,7 +605,10 @@ def main():
         logger.info(f'Epoch [{epoch+1}/{config.EPOCHS}]')
         logger.info(f'  Train - Loss: {train_loss:.4f}, Overall Acc: {train_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {train_metrics["balanced_accuracy"]:.2f}%')
         logger.info(f'  Val   - Loss: {val_loss:.4f}, Overall Acc: {val_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {val_metrics["balanced_accuracy"]:.2f}%')
+        logger.info(f'  Val F1 - Macro: {val_metrics["macro_f1"]:.2f}%, Weighted: {val_metrics["weighted_f1"]:.2f}%')
         logger.info(f'  Class Recalls: {[f"{r:.1f}" for r in val_metrics["class_recalls"]]}%')
+        logger.info(f'  Class F1s: {[f"{f:.1f}" for f in val_metrics["class_f1s"]]}%')
+        logger.info(f'  Imbalance Ratio: {val_metrics["imbalance_ratio"]:.2f}')
         logger.info(f'  内存使用 - RAM: {memory_usage["ram"]}, GPU: {memory_usage["gpu"]}')
         
         # 强制刷新日志缓冲区，确保实时写入
