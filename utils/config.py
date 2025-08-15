@@ -8,9 +8,10 @@ DEVICE = torch.device("cuda:1")
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
 SIMPLE_DEPTH_MODEL_PATH = r'D:\Project\traffic\app\depth_scene.pth'
 
-# --- 数据路径 ---
-TRAIN_DATA_ROOT = r'D:\Project\traffic\交接\highway_train_data\highway_train_data'
-VAL_DATA_ROOT = r'D:\Project\traffic\交接\highway_validate_data'
+# --- 数据路径（已更新为新的划分结果）---
+TRAIN_DATA_ROOT = r'D:\Project\traffic\app\data\train'
+VAL_DATA_ROOT = r'D:\Project\traffic\app\data\val'
+TEST_DATA_ROOT = r'D:\Project\traffic\app\data\test'  # 新增测试集路径
 
 # --- 输出路径 ---
 MODEL_OUTPUT_DIR = r'D:\Project\traffic\app\data'
@@ -22,6 +23,15 @@ TARGET_IMG_WIDTH = 256
 TARGET_INPUT_SIZE = (TARGET_IMG_HEIGHT, TARGET_IMG_WIDTH) # (H, W)
 NORM_MEAN = [0.485, 0.456, 0.406]
 NORM_STD = [0.229, 0.224, 0.225]
+DIRECT_RESIZE = False  # True: 直接resize到目标尺寸(可能改变长宽比), False: 保持长宽比+填充(默认)
+
+# --- 数据增强配置 ---
+USE_AUGMENTATION = True  # 是否启用数据增强
+
+# --- 双tensor模式配置 ---
+USE_DUAL_TENSOR = True  # 是否使用双tensor模式（原始+增强）
+                        # True: 适用于VisMFN等需要物理特征提取的模型
+                        # False: 适用于ResNet50、UNet等传统模型
 
 # --- 训练超参数 ---
 BATCH_SIZE = 12

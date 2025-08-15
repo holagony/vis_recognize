@@ -16,256 +16,16 @@ try:
 except ImportError:
    from torch.cuda.amp import GradScaler
 
-from datetime import datetime
-from collections import Counter
 from tqdm import tqdm
-import psutil
 from sklearn.metrics import balanced_accuracy_score, classification_report, confusion_matrix
 from models.vismfn.model import VisMFN
 from utils.loss import create_loss_function
-from datasets.dataset import VisibilityDataset, collate_fn_filter_none
 from utils import config
-
-
-def set_seed(seed=42):
-    """
-    设置全局随机种子以确保训练的可重复性
-    
-    Args:
-        seed (int): 随机种子值，默认为42
-    """
-    # Python内置随机数
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-    
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    
-
-def worker_init_fn():
-    """
-    DataLoader worker初始化函数，确保每个worker有不同但确定的随机种子
-    """
-    # 获取主进程的随机种子
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-
-def setup_logging(output_dir):
-    """
-    设置日志记录
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    log_file = os.path.join(output_dir, f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    
-    # 清除已有的handlers，避免重复日志
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-    
-    # 设置日志格式
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    
-    # 文件处理器 - 强制立即刷新
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.INFO)
-    
-    # 控制台处理器 - 强制立即刷新
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
-    
-    # 配置根logger
-    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
-    logger = logging.getLogger(__name__)
-    
-    # 强制立即刷新所有日志
-    for handler in logger.handlers:
-        if hasattr(handler, 'flush'):
-            handler.flush()
-    
-    return logger
-
-
-def get_memory_usage():
-    """
-    获取当前内存使用情况
-    """
-    process = psutil.Process(os.getpid())
-    memory_info = process.memory_info()
-    gpu_memory = "N/A"
-    if torch.cuda.is_available():
-        gpu_memory = f"{torch.cuda.memory_allocated() / 1024**3:.2f}GB"
-    
-    return {'ram': f"{memory_info.rss / 1024**3:.2f}GB", 'gpu': gpu_memory}
-
-
-def calculate_metrics(y_true, y_pred, num_classes=5):
-    """
-    计算详细的分类指标，特别适合不平衡数据集
-    
-    Args:
-        y_true: 真实标签
-        y_pred: 预测标签  
-        num_classes: 类别数量
-    
-    Returns:
-        dict: 包含各种指标的字典
-    """
-    # 转换为numpy数组
-    if torch.is_tensor(y_true):
-        y_true = y_true.cpu().numpy()
-    if torch.is_tensor(y_pred):
-        y_pred = y_pred.cpu().numpy()
-    
-    # 确保是1D数组
-    y_true = np.asarray(y_true).flatten()
-    y_pred = np.asarray(y_pred).flatten()
-    
-    # 确保预测标签在合法范围内，避免sklearn警告
-    y_pred = np.clip(y_pred, 0, num_classes - 1)
-    
-    # 总体准确率
-    overall_acc = np.mean(y_true == y_pred) * 100
-    
-    # 平衡准确率（各类别召回率的平均值）
-    # 使用labels参数指定所有可能的类别，避免警告
-    balanced_acc = balanced_accuracy_score(y_true, y_pred) * 100
-    
-    # 计算F1分数（宏平均和加权平均）
-    from sklearn.metrics import f1_score
-    # 指定labels参数避免警告
-    labels = list(range(num_classes))
-    macro_f1 = f1_score(y_true, y_pred, average='macro', labels=labels, zero_division=0) * 100
-    weighted_f1 = f1_score(y_true, y_pred, average='weighted', labels=labels, zero_division=0) * 100
-    
-    # 如果没有预测结果，返回默认值
-    if len(y_true) == 0 or len(y_pred) == 0:
-        return {
-            'overall_accuracy': 0.0,
-            'balanced_accuracy': 0.0,
-            'macro_f1': 0.0,
-            'weighted_f1': 0.0,
-            'class_recalls': [0.0] * num_classes,
-            'class_precisions': [0.0] * num_classes,
-            'class_f1s': [0.0] * num_classes,
-            'mean_recall': 0.0,
-            'mean_precision': 0.0,
-            'mean_f1': 0.0,
-            'imbalance_ratio': 1.0,
-            'class_counts': [0] * num_classes
-        }
-    
-    # 各类别指标
-    class_accuracies = []
-    class_recalls = []
-    class_precisions = []
-    class_f1s = []
-    
-    for i in range(num_classes):
-        # 类别i的样本
-        class_mask = (y_true == i)
-        class_mask_sum = np.sum(class_mask) if hasattr(class_mask, 'sum') else int(class_mask)
-        
-        if class_mask_sum > 0:  # 如果该类别有样本
-            class_acc = np.mean(y_pred[class_mask] == i) * 100  # 召回率
-            class_recalls.append(class_acc)
-        else:
-            class_recalls.append(0.0)
-        
-        # 类别i的精确率
-        pred_mask = (y_pred == i)
-        pred_mask_sum = np.sum(pred_mask) if hasattr(pred_mask, 'sum') else int(pred_mask)
-        
-        if pred_mask_sum > 0:
-            class_prec = np.mean(y_true[pred_mask] == i) * 100
-            class_precisions.append(class_prec)
-        else:
-            class_precisions.append(0.0)
-        
-        # 类别i的F1分数
-        if class_mask_sum > 0 or pred_mask_sum > 0:
-            # 使用二分类F1计算，避免sklearn警告
-            class_f1 = f1_score(y_true == i, y_pred == i, zero_division=0) * 100
-            class_f1s.append(class_f1)
-        else:
-            class_f1s.append(0.0)
-    
-    # 计算类别不平衡指标
-    class_counts = np.bincount(y_true, minlength=num_classes)
-    imbalance_ratio = np.max(class_counts) / (np.min(class_counts) + 1e-8)  # 避免除零
-    
-    return {
-        'overall_accuracy': overall_acc,
-        'balanced_accuracy': balanced_acc,
-        'macro_f1': macro_f1,
-        'weighted_f1': weighted_f1,
-        'class_recalls': class_recalls,
-        'class_precisions': class_precisions,
-        'class_f1s': class_f1s,
-        'mean_recall': np.mean(class_recalls),
-        'mean_precision': np.mean(class_precisions),
-        'mean_f1': np.mean(class_f1s),
-        'imbalance_ratio': imbalance_ratio,
-        'class_counts': class_counts.tolist()
-    }
-
-
-def img_dataloader(data_dir_path):
-    """
-    从已按类别分子文件夹的目录中加载图像路径和标签
-    """
-    all_image_paths = []
-    all_labels = []
-    expected_labels_str = [str(i) for i in range(config.NUM_CLASSES)]
-    label_to_idx = {label_str: idx for idx, label_str in enumerate(expected_labels_str)}
-    
-    if not os.path.isdir(data_dir_path):
-        return [], []
-
-    for label_str in expected_labels_str:
-        class_dir = os.path.join(data_dir_path, label_str)
-        if not os.path.isdir(class_dir):
-            continue
-        
-        img_patterns = ["*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.png", "*.PNG"]
-        for pattern in img_patterns:
-            for img_path in glob.glob(os.path.join(class_dir, pattern)):
-                all_image_paths.append(img_path)
-                all_labels.append(label_to_idx[label_str])
-
-    return all_image_paths, all_labels
-
-
-def create_weighted_sampler(labels):
-    """
-    创建加权采样器来处理不平衡数据集，让训练时各个类别的样本被选中的概率更加均衡。
-    """
-    class_counts = Counter(labels)
-    total_samples = len(labels)
-    
-    # 计算每个类别的权重
-    class_weights = {}
-    for class_idx in range(config.NUM_CLASSES):
-        if class_idx in class_counts:
-            class_weights[class_idx] = total_samples / (config.NUM_CLASSES * class_counts[class_idx])
-        else:
-            class_weights[class_idx] = 1.0
-    
-    # 为每个样本分配权重
-    sample_weights = [class_weights[label] for label in labels]
-    
-    return WeightedRandomSampler(weights=sample_weights, 
-                                 num_samples=len(sample_weights), 
-                                 replacement=True)
-
+from utils.utils import set_seed, setup_logging, get_memory_usage
+from utils.metric import calculate_metrics
+from utils.loss import create_loss_function
+from datasets.vis_dataloader import get_dataloader
+from models.resnet.resnet_cbam import ResNet, resnet18_cbam 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device, accumulation_steps=1, epoch=None, scaler=None):
     """
@@ -412,10 +172,6 @@ def main():
 
     # 有default
     parser.add_argument('--weight_mode', type=str, choices=['balanced', 'sqrt_balanced', 'log_balanced'], default=config.WEIGHT_MODE)
-    parser.add_argument('--smooth_factor', type=float, default=config.SMOOTH_FACTOR)
-    parser.add_argument('--focal_gamma', type=float, default=config.FOCAL_GAMMA)
-    parser.add_argument('--focal_alpha', type=str, default=config.FOCAL_ALPHA)
-    parser.add_argument('--label_smoothing', type=float, default=config.LABEL_SMOOTHING)
     parser.add_argument('--seed', type=int, default=3407, help='随机种子')
     args = parser.parse_args()
     
@@ -424,47 +180,16 @@ def main():
     
     os.makedirs(config.MODEL_OUTPUT_DIR, exist_ok=True)
     logger = setup_logging(config.MODEL_OUTPUT_DIR) # 设置日志
-    tb_writer = SummaryWriter(log_dir=os.path.join(config.MODEL_OUTPUT_DIR, 'tensorboard')) # 设置 TensorBoard
+    tb_writer = SummaryWriter(log_dir=os.path.join(config.MODEL_OUTPUT_DIR, 'tensorboard'))
 
     # 加载数据和创建数据集
-    train_image_paths, train_labels = img_dataloader(config.TRAIN_DATA_ROOT)
-    val_image_paths, val_labels = img_dataloader(config.VAL_DATA_ROOT)
-    train_dataset = VisibilityDataset(train_image_paths, train_labels, is_train=True)
-    val_dataset = VisibilityDataset(val_image_paths, val_labels, is_train=False)
-    
-    if args.weighted_sampler: # 使用加权采样器处理不平衡数据
-        sampler = create_weighted_sampler(train_labels)
-    else:
-        sampler = None
+    train_loader, val_loader = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=True)
 
-    # 在Windows系统上，为了避免多进程序列化问题，可以设置num_workers=0
-    # 或者确保所有transform都是可序列化的（已修复Lambda函数问题）
-    train_loader = DataLoader(train_dataset, 
-                              batch_size=config.BATCH_SIZE, 
-                              sampler=sampler,
-                              shuffle=(sampler is None),
-                              num_workers=0,  # Windows上设为0避免多进程问题
-                              pin_memory=True,
-                              persistent_workers=False,
-                              worker_init_fn=worker_init_fn,
-                              collate_fn=collate_fn_filter_none)
-
-    val_loader = DataLoader(val_dataset, 
-                            batch_size=config.BATCH_SIZE, 
-                            shuffle=False,
-                            num_workers=0,  # Windows上设为0避免多进程问题
-                            pin_memory=True,
-                            persistent_workers=False,
-                            worker_init_fn=worker_init_fn,
-                            collate_fn=collate_fn_filter_none)
-    
     logger.info(f"随机种子: {args.seed}")
-    logger.info(f"训练集大小: {len(train_dataset)}, 验证集大小: {len(val_dataset)}")
     logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
     logger.info(f"加权策略: 采样器={args.weighted_sampler}, 损失权重={args.weighted_loss}")
     if args.weighted_loss:
         logger.info(f"权重模式: {args.weight_mode}, 平滑因子: {args.smooth_factor}")
-    logger.info(f"损失函数: {args.loss_type}" + (f", gamma={args.focal_gamma}" if args.loss_type == 'focal' else ""))
     
     # 创建模型
     logger.info("正在初始化模型...")

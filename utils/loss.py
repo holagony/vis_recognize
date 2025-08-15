@@ -45,7 +45,7 @@ class FocalLoss(nn.Module):
 
 
 def create_loss_function(labels, loss_type='crossentropy', alpha=1, gamma=2, use_weights=False, 
-                         weight_mode='balanced', smooth_factor=0.1, label_smoothing=0.0):
+                         weight_mode='balanced', smooth_factor=0.1, label_smoothing=0.1):
     """
     创建损失函数 - 支持CrossEntropyLoss和FocalLoss二选一
     
@@ -108,7 +108,6 @@ def create_loss_function(labels, loss_type='crossentropy', alpha=1, gamma=2, use
                     final_weights.append(1.0)
             
             weights_tensor = torch.FloatTensor(final_weights).to(config.DEVICE)
-            print(f"类别权重 ({weight_mode}模式): {final_weights}")
         
         return nn.CrossEntropyLoss(
             weight=weights_tensor,
