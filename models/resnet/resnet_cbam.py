@@ -2,6 +2,8 @@ import math
 import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
+from models.feature_extraction_block import feature_extraction_block
+from utils import config
 
 
 __all__ = ['ResNet', 'resnet18_cbam', 'resnet34_cbam', 'resnet50_cbam', 'resnet101_cbam', 'resnet152_cbam']
@@ -139,10 +141,13 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000):
+    def __init__(self, block, layers, num_classes=5, in_channels=26):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+
+        self.feature_extraction = feature_extraction_block
+        self.in_channels = in_channels
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -164,10 +169,8 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
+                                       nn.BatchNorm2d(planes * block.expansion))
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
@@ -178,6 +181,12 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+
+        if self.in_channels == 26:
+            x_ori, x_aug = x
+            init_features, _ = self.feature_extraction(x_ori, x_aug)
+            x = init_features
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -195,14 +204,9 @@ class ResNet(nn.Module):
         return x
 
 
-def resnet18_cbam(pretrained=False, **kwargs):
-    """Constructs a ResNet-18 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-    if pretrained:
+def resnet18_cbam(pretrained=False, in_channels=26, **kwargs):
+    model = ResNet(BasicBlock, [2, 2, 2, 2], in_channels=in_channels, **kwargs)
+    if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet18'])
         now_state_dict = model.state_dict()
         now_state_dict.update(pretrained_state_dict)
@@ -210,14 +214,9 @@ def resnet18_cbam(pretrained=False, **kwargs):
     return model
 
 
-def resnet34_cbam(pretrained=False, **kwargs):
-    """Constructs a ResNet-34 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    if pretrained:
+def resnet34_cbam(pretrained=False, in_channels=26, **kwargs):
+    model = ResNet(BasicBlock, [3, 4, 6, 3], in_channels=in_channels, **kwargs)
+    if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet34'])
         now_state_dict = model.state_dict()
         now_state_dict.update(pretrained_state_dict)
@@ -225,14 +224,9 @@ def resnet34_cbam(pretrained=False, **kwargs):
     return model
 
 
-def resnet50_cbam(pretrained=False, **kwargs):
-    """Constructs a ResNet-50 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
+def resnet50_cbam(pretrained=False, in_channels=26, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], in_channels=in_channels, **kwargs)
+    if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet50'])
         now_state_dict = model.state_dict()
         now_state_dict.update(pretrained_state_dict)
@@ -240,14 +234,9 @@ def resnet50_cbam(pretrained=False, **kwargs):
     return model
 
 
-def resnet101_cbam(pretrained=False, **kwargs):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
+def resnet101_cbam(pretrained=False, in_channels=26, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 23, 3], in_channels=in_channels, **kwargs)
+    if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet101'])
         now_state_dict = model.state_dict()
         now_state_dict.update(pretrained_state_dict)
@@ -255,16 +244,24 @@ def resnet101_cbam(pretrained=False, **kwargs):
     return model
 
 
-def resnet152_cbam(pretrained=False, **kwargs):
-    """Constructs a ResNet-152 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-    if pretrained:
+def resnet152_cbam(pretrained=False, in_channels=26, **kwargs):
+    model = ResNet(Bottleneck, [3, 8, 36, 3], in_channels=in_channels, **kwargs)
+    if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet152'])
         now_state_dict = model.state_dict()
         now_state_dict.update(pretrained_state_dict)
         model.load_state_dict(now_state_dict)
     return model
+
+
+if __name__ == '__main__':
+    # test
+    input_x = torch.randn(12, 3, 256, 256).to(config.DEVICE)
+    input_y = torch.randn(12, 3, 256, 256).to(config.DEVICE)
+    inputs = (input_x, input_y)
+    model = resnet50_cbam(pretrained=False, in_channels=26)
+    model = model.to(config.DEVICE)
+    model.eval()
+    with torch.no_grad():
+        outputs = model(inputs)
+        print(outputs.shape)

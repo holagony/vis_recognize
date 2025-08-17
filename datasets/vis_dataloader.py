@@ -121,11 +121,11 @@ def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted
                             collate_fn=collate_fn_filter_none,
                             worker_init_fn=worker_init_fn)
 
-    return train_loader, val_loader
+    return train_loader, val_loader, train_labels
 
 
 if __name__ == "__main__":
-    train_loader, val_loader = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=True)
+    train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=True)
     for i, (original_inputs, augmented_inputs, labels) in enumerate(train_loader):
         print(original_inputs.shape, augmented_inputs.shape, labels.shape)
         break

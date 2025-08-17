@@ -533,7 +533,7 @@ def feature_extraction_block(ori_inputs, aug_inputs):
     # 初始化各分支
     # 场景深度分支  
     if config.USE_SIMPLE_DEPTH:
-        scene_depth_branch = SimpleSceneDepthBranch(model_weight_path=config.DEPTH_MODEL_PATH, device=config.DEVICE)
+        scene_depth_branch = SimpleSceneDepthBranch(model_weight_path=config.SIMPLE_DEPTH_MODEL_PATH, device=config.DEVICE)
     else:
         scene_depth_branch = DPTSceneDepthBranch(dpt_model_type='dpt_hybrid', device=config.DEVICE)
 
