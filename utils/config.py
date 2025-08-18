@@ -1,9 +1,8 @@
 import os
 import torch
 
-# DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DEVICE = torch.device("cuda:1")
-
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# DEVICE = torch.device("cuda:1")
 
 CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(CURRENT_DIR, 'data')
@@ -19,7 +18,7 @@ MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 INFERENCE_RESULT_DIR = os.path.join(RESULT_DIR, 'inference')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (256, 256) # (H, W)
+TARGET_INPUT_SIZE = (224, 224) # (H, W)
 NORM_MEAN = [0.485, 0.456, 0.406]
 NORM_STD = [0.229, 0.224, 0.225]
 DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
@@ -31,11 +30,11 @@ SIMPLE_DEPTH_MODEL_PATH = r'C:/Users/mjynj/Desktop/vis/app/depth_scene.pth'
 MODEL_TYPE = 'resnet'  # 'vismfn' 或 'resnet'
 
 # 训练超参数
-BATCH_SIZE = 12
+BATCH_SIZE = 8
 GRADIENT_ACCUMULATION_STEPS = 4 # 梯度累积
-EPOCHS = 60
+EPOCHS = 80
 NUM_CLASSES = 5
-GRADIENT_CLIP_NORM = 1.0 # 梯度裁剪 5.0
+GRADIENT_CLIP_NORM = 2.0 # 梯度裁剪 5.0
 
 # AdamW 参数
 LEARNING_RATE = 1e-4
@@ -44,16 +43,21 @@ BETAS = (0.9, 0.999)
 EPS = 1e-8
 
 # warmup + 余弦退火 参数
-WARMUP_EPOCHS = 3 # 减少预热轮数
+WARMUP_EPOCHS = 5 # 减少预热轮数
 WARMUP_FACTOR = 0.2 # 提高起始因子
-ETA_MIN = 2e-5 # 最小学习率
+ETA_MIN = 1e-5 # 最小学习率
+
+# 早停配置
+EARLY_STOPPING_PATIENCE = 8  # 早停耐心值
+EARLY_STOPPING_MIN_DELTA = 0.005  # 最小改进阈值
 
 # 损失函数超参数
 FOCAL_GAMMA = 2.0 # 标准Focal Loss的gamma，适合中等不平衡
 FOCAL_ALPHA = 1.0 # 标准Focal Loss alpha参数
 WEIGHT_MODE = 'sqrt_balanced' # 平方根平衡权重，缓解不平衡影响
-SMOOTH_FACTOR = 0.1 # 减少平滑因子，保持类别区分度
-LABEL_SMOOTHING = 0.1
+SMOOTH_FACTOR = 0.05 # 减少平滑因子，保持类别区分度
+LABEL_SMOOTHING = 0.03 # 不平衡任务需减少平滑，避免主导类别的概率泄露到罕见类别。
+
 
 # vismfn channel数量
 SFRB_OUT_CHANNELS = 64    # 11->64，初始特征提取

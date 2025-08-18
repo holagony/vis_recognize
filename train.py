@@ -21,9 +21,27 @@ try:
 except:
    from torch.cuda.amp import GradScaler
 
+class EarlyStopping:
+    def __init__(self, patience=10, min_delta=0.001):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_score = None
+        
+    def __call__(self, val_score):
+        if self.best_score is None or val_score > self.best_score + self.min_delta:
+            self.best_score = val_score
+            self.counter = 0
+            return False
+        else:
+            self.counter += 1
+            return self.counter >= self.patience
 
-# warmup + 余弦退火
+
 def get_lr_scheduler(optimizer, warmup_epochs, total_epochs, eta_min):
+    '''
+    warmup + 余弦退火
+    '''
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
             # 预热阶段：线性增长
@@ -187,18 +205,19 @@ def main():
     parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal'], default='crossentropy')
     parser.add_argument('--weighted_sampler', action='store_true', help='是否使用加权采样器') # weighted_sampler/weighted_loss 最好二选一
     parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重')
+    parser.add_argument('--early_stopping', action='store_true', help='是否启用早停')
     parser.add_argument('--seed', type=int, default=3407)
     args = parser.parse_args()
-
-    logger.info(f"随机种子: {args.seed}")
-    logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
-    logger.info(f"加权策略: 采样器={args.weighted_sampler}, 损失权重={args.weighted_loss}")
 
     # 初始设置
     set_seed(args.seed)
     os.makedirs(config.MODEL_OUTPUT_DIR, exist_ok=True)
     logger = setup_logging(config.MODEL_OUTPUT_DIR)
     tb_writer = SummaryWriter(log_dir=os.path.join(config.MODEL_OUTPUT_DIR, 'tensorboard'))
+
+    logger.info(f"随机种子: {args.seed}")
+    logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
+    logger.info(f"加权策略: 采样器={args.weighted_sampler}, 损失权重={args.weighted_loss}")
 
     # 加载数据
     train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=args.weighted_sampler)
@@ -211,25 +230,33 @@ def main():
         model = VisMFN(**model_kwargs)
     model = model.to(config.DEVICE)
 
-    # 损失函数
-    criterion = create_loss_function(train_labels, loss_type=args.loss_type, use_weights=args.weighted_loss, weight_mode=args.weight_mode, smooth_factor=0.05, label_smoothing=0.1)
+    # 建议修改为
+    criterion = create_loss_function(train_labels, 
+                                     loss_type=args.loss_type, 
+                                     use_weights=args.weighted_loss, 
+                                     weight_mode=config.WEIGHT_MODE,
+                                     smooth_factor=config.SMOOTH_FACTOR, 
+                                     label_smoothing=config.LABEL_SMOOTHING)
     
     # 优化器参数
-    optimizer = optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
+    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
     
     # 学习率
     # scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN / config.LEARNING_RATE) # warmup + 余弦退火
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5, verbose=True)
 
     # 混合精度训练
     try:
         scaler = GradScaler(device='cuda') if torch.cuda.is_available() else None
     except:
-        scaler = GradScaler() if torch.cuda.is_available() else None
-    
+        try:
+            scaler = GradScaler() if torch.cuda.is_available() else None
+        except:
+            scaler = None
+
     # 训练变量
     start_epoch = 0
-    best_accuracy = 0.0
+    best_accuracy = 0.0 # 验证集
     
     # 恢复训练
     if args.resume and os.path.exists(args.resume):
@@ -246,7 +273,8 @@ def main():
     for epoch in range(start_epoch, config.EPOCHS):
         train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler)
         val_loss, val_metrics = validate(model, val_loader, criterion)
-        scheduler.step() # update learning rate
+        # scheduler.step() # update learning rate
+        scheduler.step(val_loss)
         
         # TensorBoard结果记录
         tb_writer.add_scalar('Loss/Train', train_loss, epoch)
@@ -293,7 +321,15 @@ def main():
         if (epoch + 1) % 3 == 0:
             checkpoint_path = os.path.join(config.MODEL_OUTPUT_DIR, f'vis_epoch_{epoch+1}.pth')
             save_checkpoint(model, optimizer, epoch, val_balanced_acc, best_accuracy, checkpoint_path)
-    
+
+        # 早停
+        if args.early_stopping:
+            early_stopping = EarlyStopping(patience=config.EARLY_STOPPING_PATIENCE, min_delta=config.EARLY_STOPPING_MIN_DELTA)
+            if early_stopping(val_balanced_acc):
+                logger.info(f'早停触发！在第 {epoch+1} 轮停止训练')
+                logger.info(f'最佳验证准确率: {best_accuracy:.2f}%')
+                break
+
     # 保存最终模型
     final_model_path = os.path.join(config.MODEL_OUTPUT_DIR, 'vis_final.pth')
     save_checkpoint(model, optimizer, config.EPOCHS-1, val_balanced_acc, best_accuracy, final_model_path)
