@@ -213,8 +213,6 @@ def main():
     parser.add_argument('--seed', type=int, default=3407)
     args = parser.parse_args()
 
-    print('11111')
-
     # 初始设置
     set_seed(args.seed)
     os.makedirs(config.MODEL_OUTPUT_DIR, exist_ok=True)
@@ -309,11 +307,6 @@ def main():
         logger.info(f'  Class F1s: {[f"{f:.1f}" for f in val_metrics["class_f1s"]]}%')
         logger.info(f'  Imbalance Ratio: {val_metrics["imbalance_ratio"]:.2f}')
         logger.info(f'  内存使用 - RAM: {memory_usage["ram"]}, GPU: {memory_usage["gpu"]}')
-        
-        # 强制刷新日志缓冲区，确保实时写入
-        for handler in logger.handlers:
-            if hasattr(handler, 'flush'):
-                handler.flush()
         
         # 保存模型
         # 最佳模型

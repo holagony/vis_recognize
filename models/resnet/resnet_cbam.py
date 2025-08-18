@@ -158,13 +158,41 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
+        # 增强的权重初始化
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """增强的权重初始化方法"""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                # 使用Kaiming初始化（He初始化）
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+                # BatchNorm层权重初始化为1，偏置初始化为0
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                # 线性层使用Xavier初始化
+                nn.init.xavier_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, (ChannelAttention, SpatialAttention)):
+                # 注意力模块的特殊初始化
+                self._init_attention_module(m)
+    
+    def _init_attention_module(self, module):
+        """注意力模块的特殊初始化"""
+        for m in module.modules():
+            if isinstance(m, nn.Conv2d):
+                # 注意力模块使用较小的初始化值
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                # 对于1x1卷积，使用更小的标准差
+                if m.kernel_size == (1, 1):
+                    m.weight.data *= 0.1
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
