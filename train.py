@@ -7,7 +7,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.amp import autocast
 from tqdm import tqdm
 from sklearn.metrics import balanced_accuracy_score
-
 from datasets.vis_dataloader import get_dataloader 
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
@@ -17,7 +16,7 @@ from utils.metric import calculate_metrics
 from utils import config
 
 try:
-   from torch import GradScaler        # torch >= 2.3
+   from torch import GradScaler # torch >= 2.3
 except:
    from torch.cuda.amp import GradScaler
 
@@ -242,8 +241,8 @@ def main():
     optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
     
     # 学习率
-    # scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN / config.LEARNING_RATE) # warmup + 余弦退火
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5, verbose=True)
+    scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN / config.LEARNING_RATE) # warmup + 余弦退火
+    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5, verbose=True)
 
     # 混合精度训练
     try:
@@ -273,8 +272,8 @@ def main():
     for epoch in range(start_epoch, config.EPOCHS):
         train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler)
         val_loss, val_metrics = validate(model, val_loader, criterion)
-        # scheduler.step() # update learning rate
-        scheduler.step(val_loss)
+        scheduler.step() # update learning rate
+        # scheduler.step(val_loss)
         
         # TensorBoard结果记录
         tb_writer.add_scalar('Loss/Train', train_loss, epoch)

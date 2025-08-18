@@ -30,8 +30,8 @@ SIMPLE_DEPTH_MODEL_PATH = r'C:/Users/mjynj/Desktop/vis/app/depth_scene.pth'
 MODEL_TYPE = 'resnet'  # 'vismfn' 或 'resnet'
 
 # 训练超参数
-BATCH_SIZE = 8
-GRADIENT_ACCUMULATION_STEPS = 4 # 梯度累积
+BATCH_SIZE = 12
+GRADIENT_ACCUMULATION_STEPS = 2 # 梯度累积
 EPOCHS = 80
 NUM_CLASSES = 5
 GRADIENT_CLIP_NORM = 2.0 # 梯度裁剪 5.0
