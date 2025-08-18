@@ -2,7 +2,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
-from models.feature_extraction_block import feature_extraction_block
 from utils import config
 
 
@@ -145,7 +144,6 @@ class ResNet(nn.Module):
         self.inplanes = 64
         super(ResNet, self).__init__()
 
-        self.feature_extraction = feature_extraction_block
         self.in_channels = in_channels
         self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -162,7 +160,9 @@ class ResNet(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
-        """增强的权重初始化方法"""
+        '''
+        权重初始化方法
+        '''
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 # 使用Kaiming初始化（He初始化）
@@ -183,7 +183,9 @@ class ResNet(nn.Module):
                 self._init_attention_module(m)
     
     def _init_attention_module(self, module):
-        """注意力模块的特殊初始化"""
+        '''
+        注意力模块的特殊初始化
+        '''
         for m in module.modules():
             if isinstance(m, nn.Conv2d):
                 # 注意力模块使用较小的初始化值
@@ -209,12 +211,6 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-
-        if self.in_channels == 26:
-            x_ori, x_aug = x
-            init_features, _ = self.feature_extraction(x_ori, x_aug)
-            x = init_features
-
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.feature_extraction_block import feature_extraction_block
+from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.cnn_block import SFRB, MSFB, GFFB
 from models.vismfn.attention_block import CBAM
 from utils import config

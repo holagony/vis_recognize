@@ -59,21 +59,21 @@ def create_weighted_sampler(labels):
 
 def collate_fn_filter_none(batch):
     '''
-    过滤掉None的批次数据，支持双tensor输出
+    过滤掉None的批次数据，支持特征和标签输出
     '''
     # 过滤掉None的样本
     batch = [item for item in batch if item is not None and len(item) == 3]
     if not batch:
         return None, None, None
 
-    # 分离原始tensor、增强tensor和标签
-    original_tensors = [item[0] for item in batch]
-    augmented_tensors = [item[1] for item in batch]
+    # 分离原始图像、增强图像和标签
+    original_images = [item[0] for item in batch]
+    augmented_images = [item[1] for item in batch]
     labels = [item[2] for item in batch]
 
     # 使用默认的collate函数处理每个部分
-    original_batch = torch.stack(original_tensors)
-    augmented_batch = torch.stack(augmented_tensors)
+    original_batch = torch.stack(original_images)
+    augmented_batch = torch.stack(augmented_images)
     label_batch = torch.tensor(labels)
 
     return original_batch, augmented_batch, label_batch
@@ -98,27 +98,32 @@ def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted
     train_img_paths, train_labels = img_dataloader(train_dir)
     val_img_paths, val_labels = img_dataloader(val_dir)
     train_dataset = VisibilityDataset(train_img_paths, train_labels, augment, is_train=True)
-    val_dataset = VisibilityDataset(val_img_paths, val_labels, augment, is_train=False)
+    val_dataset = VisibilityDataset(val_img_paths, val_labels, False, is_train=False)
 
+    # 创建采样器
     if weighted_sampler:
-        sampler = create_weighted_sampler(train_labels)
+        train_sampler = create_weighted_sampler(train_labels)
+        train_loader = DataLoader(train_dataset, 
+                                  batch_size=config.BATCH_SIZE, 
+                                  sampler=train_sampler,
+                                  num_workers=0,
+                                  pin_memory=True,
+                                  collate_fn=collate_fn_filter_none,
+                                  worker_init_fn=worker_init_fn)
     else:
-        sampler = None
+        train_loader = DataLoader(train_dataset, 
+                                  batch_size=config.BATCH_SIZE, 
+                                  shuffle=True,
+                                  num_workers=0,
+                                  pin_memory=True,
+                                  collate_fn=collate_fn_filter_none,
+                                  worker_init_fn=worker_init_fn)
 
-    train_loader = DataLoader(train_dataset,
-                              batch_size=config.BATCH_SIZE,
-                              sampler=sampler,
-                              shuffle=(sampler is None),
-                              num_workers=0,  # Windows上设为0避免多进程问题
-                              pin_memory=True,
-                              collate_fn=collate_fn_filter_none,
-                              worker_init_fn=worker_init_fn)
-
-    val_loader = DataLoader(val_dataset,
-                            batch_size=config.BATCH_SIZE,
+    val_loader = DataLoader(val_dataset, 
+                            batch_size=config.BATCH_SIZE, 
                             shuffle=False,
-                            num_workers=0,  # Windows上设为0避免多进程问题
-                            pin_memory=True,
+                            num_workers=0,  # 增加多进程支持
+                            pin_memory=True,  # 启用内存固定
                             collate_fn=collate_fn_filter_none,
                             worker_init_fn=worker_init_fn)
 
@@ -127,6 +132,6 @@ def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted
 
 if __name__ == "__main__":
     train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=True)
-    for i, (original_inputs, augmented_inputs, labels) in enumerate(train_loader):
-        print(original_inputs.shape, augmented_inputs.shape, labels.shape)
+    for i, (original_image, augmented_image, label) in enumerate(train_loader):
+        print(original_image.shape, augmented_image.shape, label.shape)
         break

@@ -1,25 +1,18 @@
-import torch
-from torchvision import transforms
-from PIL import Image
-import numpy as np
-import matplotlib.pyplot as plt
 import os
 import glob
-import argparse
-from datetime import datetime
-
+import numpy as np
+from collections import Counter
+from PIL import Image
+import torch
+from torchvision import transforms
 from torch.utils.data import DataLoader
-import pandas as pd
 from utils.metric import calculate_metrics
-
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
-from models.feature_extraction_block import feature_extraction_block
 from datasets.vis_dataset import VisibilityDataset, InputResize
 from datasets.vis_dataloader import collate_fn_filter_none, worker_init_fn
-
+from datasets.feature_extraction import feature_extraction_block
 from utils import config
-from collections import Counter
 
 
 def load_model(model_path):
@@ -92,18 +85,31 @@ def evaluate_dataset(model, data_loader):
             if batch_data is None:
                 continue
 
-            # 处理不同的数据格式
-            if len(batch_data) == 3:  # 原始tensor, 增强tensor, 标签
-                original_inputs, augmented_inputs, labels = batch_data
-                original_inputs = original_inputs.to(config.DEVICE)
-                augmented_inputs = augmented_inputs.to(config.DEVICE)
-                inputs = (original_inputs, augmented_inputs)
-                labels = labels.to(config.DEVICE)
-            else:  # tensor, 标签
-                inputs, labels = batch_data
-                inputs, labels = inputs.to(config.DEVICE), labels.to(config.DEVICE)
+            original_images, augmented_images, labels = batch_data
+            original_images = original_images.to(config.DEVICE)
+            augmented_images = augmented_images.to(config.DEVICE)
+            labels = labels.to(config.DEVICE)
 
-            outputs = model(inputs)
+            # 特征提取：使用批处理方式
+            features, num_channels = feature_extraction_block(original_images, augmented_images)
+            
+            # 对融合后的特征进行标准化
+            # 前3个通道使用ImageNet标准化参数
+            rgb_mean = [0.485, 0.456, 0.406]
+            rgb_std = [0.229, 0.224, 0.225]
+            
+            # 其余通道使用默认参数
+            other_mean = [0.0] * (num_channels - 3)
+            other_std = [1.0] * (num_channels - 3)
+            
+            # 标准化
+            mean = rgb_mean + other_mean
+            std = rgb_std + other_std
+            mean_tensor = torch.tensor(mean, device=features.device).view(-1, 1, 1)
+            std_tensor = torch.tensor(std, device=features.device).view(-1, 1, 1)
+            features = (features - mean_tensor) / std_tensor
+
+            outputs = model(features)
             probabilities = torch.softmax(outputs, dim=1)
             _, predictions = torch.max(outputs, 1)
 
@@ -123,14 +129,13 @@ def run_dataset_evaluation(model_path):
     # 创建数据集和数据加载器
     test_paths, test_labels = load_test_images(config.TEST_DATA_ROOT)  # 加载测试数据
     test_dataset = VisibilityDataset(test_paths, test_labels, is_train=False, augment=False)
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=config.BATCH_SIZE,
-        shuffle=False,
-        num_workers=0,  # Windows上设为0避免多进程问题
-        pin_memory=True,
-        collate_fn=collate_fn_filter_none,
-        worker_init_fn=worker_init_fn)
+    test_loader = DataLoader(test_dataset, 
+                             batch_size=config.BATCH_SIZE, 
+                             shuffle=False, 
+                             num_workers=0, 
+                             pin_memory=True, 
+                             collate_fn=collate_fn_filter_none, 
+                             worker_init_fn=worker_init_fn)
 
     # 显示数据集统计信息
     label_counts = Counter(test_labels)
@@ -149,28 +154,49 @@ def run_dataset_evaluation(model_path):
 def run_single_image_inference(image_path, model_path):
     '''
     执行单张图像推理
-    根据程序流程，需要处理26通道的特征提取
+    根据最新的dataset逻辑，需要先进行特征提取，然后标准化
     '''
     print(f"开始处理图像: {image_path}")
 
-    # 1. 加载模型
+    # 加载模型
     model = load_model(model_path)
     print(f"模型加载成功，类型: {config.MODEL_TYPE}")
 
-    # 2. 图像预处理
     image = Image.open(image_path).convert('RGB')
     print(f"原始图像尺寸: {image.size}")
 
-    # 基础变换
-    transform = transforms.Compose([InputResize(config.TARGET_INPUT_SIZE), transforms.ToTensor(), transforms.Normalize(mean=config.NORM_MEAN, std=config.NORM_STD)])
+    # 使用与dataset相同的预处理流程
+    size_transform = InputResize(config.TARGET_INPUT_SIZE, direct_resize=config.DIRECT_RESIZE)
+    tensor_transform = transforms.ToTensor()
+    
+    image = size_transform(image)
+    original_image = tensor_transform(image) # 转换为tensor，范围[0,1]
+    augmented_image = original_image.clone()
+    
+    # 将单张图像转换为批处理格式 (1, 3, H, W)
+    original_batch = original_image.unsqueeze(0)  # (3, H, W) -> (1, 3, H, W)
+    augmented_batch = augmented_image.unsqueeze(0)  # (3, H, W) -> (1, 3, H, W)
+    
+    # 特征提取：使用批处理方式
+    features, num_channels = feature_extraction_block(original_batch, augmented_batch)
 
-    # 3. 根据模型类型准备输入
-    if config.MODEL_TYPE == 'resnet':
-        input_tensor = transform(image).unsqueeze(0).to(config.DEVICE)
-        inputs = (input_tensor, input_tensor)  # 双tensor输入
+    # 特征标准化
+    rgb_mean = [0.485, 0.456, 0.406]
+    rgb_std = [0.229, 0.224, 0.225]
+    other_mean = [0.0] * (num_channels - 3)
+    other_std = [1.0] * (num_channels - 3)
+    mean = rgb_mean + other_mean
+    std = rgb_std + other_std
+    mean_tensor = torch.tensor(mean).view(-1, 1, 1).to(features.device)
+    std_tensor = torch.tensor(std).view(-1, 1, 1).to(features.device)
+    features = (features - mean_tensor) / std_tensor
+
+    # 确保特征在正确的设备上
+    features = features.to(config.DEVICE)
+    print(f"最终输入tensor形状: {features.shape}")
 
     with torch.no_grad():
-        outputs = model(inputs)
+        outputs = model(features)
         probabilities = torch.softmax(outputs, dim=1)
         confidence, predicted_class = torch.max(probabilities, 1)
 
@@ -182,13 +208,15 @@ def run_single_image_inference(image_path, model_path):
     print(f"置信度: {confidence.item():.4f}")
     print(f"各类别概率: {[f'{p:.4f}' for p in all_probs]}")
 
-    # 6. 返回详细结果
+    # 返回详细结果
     result = {
         'image_path': image_path,
         'predicted_label': predicted_label,
         'confidence': confidence.item(),
         'probabilities': all_probs.tolist(),
         'model_type': config.MODEL_TYPE,
+        'feature_channels': num_channels,
+        'feature_shape': list(features.shape),
     }
 
     return result

@@ -1,4 +1,3 @@
-# Add the project root to Python path
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -12,7 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.amp import autocast
 from tqdm import tqdm
 from sklearn.metrics import balanced_accuracy_score
-from datasets.vis_dataloader import get_dataloader 
+from datasets.vis_dataloader import get_dataloader
+from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
 from utils.utils import set_seed, setup_logging, get_memory_usage
@@ -74,27 +74,40 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
     for batch_idx, batch_data in enumerate(pbar):
         if batch_data is None:
             continue
-            
-        # 处理不同的数据格式
-        if len(batch_data) == 3:  # 原始tensor, 增强tensor, 标签
-            original_inputs, augmented_inputs, labels = batch_data
-            original_inputs = original_inputs.to(config.DEVICE)
-            augmented_inputs = augmented_inputs.to(config.DEVICE)
-            inputs = (original_inputs, augmented_inputs)
-            labels = labels.to(config.DEVICE)
-        else:  # tensor, 标签
-            inputs, labels = batch_data
-            inputs, labels = inputs.to(config.DEVICE), labels.to(config.DEVICE)
+
+        # batch_data包含(original_images, augmented_images, labels)
+        original_images, augmented_images, labels = batch_data
+        original_images = original_images.to(config.DEVICE)
+        augmented_images = augmented_images.to(config.DEVICE)
+        labels = labels.to(config.DEVICE)
+
+        batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
+        
+        # 对融合后的特征进行标准化
+        # 前3个通道使用ImageNet标准化参数
+        rgb_mean = [0.485, 0.456, 0.406]
+        rgb_std = [0.229, 0.224, 0.225]
+        
+        # 其余通道使用默认参数
+        other_mean = [0.0] * (num_channels - 3)
+        other_std = [1.0] * (num_channels - 3)
+        
+        # 标准化
+        mean = rgb_mean + other_mean
+        std = rgb_std + other_std
+        mean_tensor = torch.tensor(mean, device=batch_features.device).view(-1, 1, 1)
+        std_tensor = torch.tensor(std, device=batch_features.device).view(-1, 1, 1)
+        batch_features = (batch_features - mean_tensor) / std_tensor
 
         # 计算loss
         if scaler is not None:
             with autocast(device_type='cuda' if torch.cuda.is_available() else 'cpu'):
-                outputs = model(inputs)
+                outputs = model(batch_features)
                 loss = criterion(outputs, labels)
                 loss = loss / accumulation_steps
             scaler.scale(loss).backward() # 自动处理梯度溢出
         else:
-            outputs = model(inputs)
+            outputs = model(batch_features)
             loss = criterion(outputs, labels)
             loss = loss / accumulation_steps
             loss.backward()
@@ -129,8 +142,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
 
         # 更新进度条 
         pbar.set_postfix({'Loss': f'{current_loss:.4f}',
-                          'Bal_Acc': f'{current_balanced_acc:.2f}%',
                           'Overall_Acc': f'{current_overall_acc:.2f}%',
+                          'Bal_Acc': f'{current_balanced_acc:.2f}%',
                           'Accum': f'{((batch_idx + 1) % accumulation_steps) + 1}/{accumulation_steps}'})
         
         # TODO: 
@@ -167,20 +180,32 @@ def validate(model, dataloader, criterion):
         for batch_data in dataloader:
             if batch_data is None:
                 continue
-                
-            # 处理不同的数据格式
-            if len(batch_data) == 3:  # 原始tensor, 增强tensor, 标签
-                original_inputs, augmented_inputs, labels = batch_data
-                original_inputs = original_inputs.to(config.DEVICE)
-                augmented_inputs = augmented_inputs.to(config.DEVICE)
-                inputs = (original_inputs, augmented_inputs)
-                labels = labels.to(config.DEVICE)
-            else:  # tensor, 标签
-                inputs, labels = batch_data
-                inputs, labels = inputs.to(config.DEVICE), labels.to(config.DEVICE)
+
+            original_images, augmented_images, labels = batch_data
+            original_images = original_images.to(config.DEVICE)
+            augmented_images = augmented_images.to(config.DEVICE)
+            labels = labels.to(config.DEVICE)
+
+            batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
             
+            # 对融合后的特征进行标准化
+            # 前3个通道使用ImageNet标准化参数
+            rgb_mean = [0.485, 0.456, 0.406]
+            rgb_std = [0.229, 0.224, 0.225]
+            
+            # 其余通道使用默认参数
+            other_mean = [0.0] * (num_channels - 3)
+            other_std = [1.0] * (num_channels - 3)
+            
+            # 标准化
+            mean = rgb_mean + other_mean
+            std = rgb_std + other_std
+            mean_tensor = torch.tensor(mean, device=batch_features.device).view(-1, 1, 1)
+            std_tensor = torch.tensor(std, device=batch_features.device).view(-1, 1, 1)
+            batch_features = (batch_features - mean_tensor) / std_tensor
+
             # 生成预测结果
-            outputs = model(inputs)
+            outputs = model(batch_features)
             loss = criterion(outputs, labels)
             
             running_loss += loss.item()
@@ -248,7 +273,7 @@ def main():
     
     # 学习率
     # scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN) # warmup + 余弦退火
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5)
 
     # 混合精度训练
     try:

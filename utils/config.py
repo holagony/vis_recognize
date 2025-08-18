@@ -18,7 +18,7 @@ MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 INFERENCE_RESULT_DIR = os.path.join(RESULT_DIR, 'inference')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (224, 224) # (H, W)
+TARGET_INPUT_SIZE = (256, 256) # (H, W)
 NORM_MEAN = [0.485, 0.456, 0.406]
 NORM_STD = [0.229, 0.224, 0.225]
 DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
@@ -26,7 +26,7 @@ USE_AUGMENTATION = True  # 是否启用数据增强
 
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
-SIMPLE_DEPTH_MODEL_PATH = '/home/QHLLM/Visibility/vis20250818/model_hub/depth_scene.pth'
+SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 MODEL_TYPE = 'resnet'  # 'vismfn' 或 'resnet'
 
 # 训练超参数
@@ -68,7 +68,7 @@ GFFB_OUT_CHANNELS = 512   # 最终输出512通道
 # 特征提取块参数
 TRANSMISSION_OMEGA = 0.95
 TRANSMISSION_PATCH_SIZE = 5
-TRANSMISSION_GUIDED_RADIUS = 60
+TRANSMISSION_GUIDED_RADIUS = 25
 TRANSMISSION_GUIDED_EPS = 1e-3
 DETAIL_GUIDED_RADIUS = 8
 DETAIL_GUIDED_EPS = 0.02**2
