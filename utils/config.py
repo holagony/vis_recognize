@@ -30,22 +30,22 @@ SIMPLE_DEPTH_MODEL_PATH = '/home/QHLLM/Visibility/vis20250818/model_hub/depth_sc
 MODEL_TYPE = 'resnet'  # 'vismfn' 或 'resnet'
 
 # 训练超参数
-BATCH_SIZE = 64
-GRADIENT_ACCUMULATION_STEPS = 2 # 梯度累积
+BATCH_SIZE = 32
+GRADIENT_ACCUMULATION_STEPS = 4 # 梯度累积
 EPOCHS = 80
 NUM_CLASSES = 5
-GRADIENT_CLIP_NORM = 2.0 # 梯度裁剪 5.0
+GRADIENT_CLIP_NORM = 1.0 # 梯度裁剪 5.0
 
 # AdamW 参数
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 6e-5
 WEIGHT_DECAY = 0.01
 BETAS = (0.9, 0.999)
 EPS = 1e-8
 
 # warmup + 余弦退火 参数
-WARMUP_EPOCHS = 5 # 减少预热轮数
-WARMUP_FACTOR = 0.2 # 提高起始因子
-ETA_MIN = 1e-5 # 最小学习率
+WARMUP_EPOCHS = 8
+WARMUP_FACTOR = 0.1
+ETA_MIN = 0.01
 
 # 早停配置
 EARLY_STOPPING_PATIENCE = 8  # 早停耐心值
