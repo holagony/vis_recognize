@@ -46,7 +46,8 @@ def create_weighted_sampler(labels):
     class_weights = {}
     for class_idx in range(config.NUM_CLASSES):
         if class_idx in class_counts:
-            class_weights[class_idx] = total_samples / (config.NUM_CLASSES * class_counts[class_idx])
+            epsilon = 1e-5
+            class_weights[class_idx] = total_samples / (config.NUM_CLASSES * (class_counts[class_idx] + epsilon))
         else:
             class_weights[class_idx] = 1.0
 

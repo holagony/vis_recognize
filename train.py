@@ -1,3 +1,8 @@
+# Add the project root to Python path
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import os
 import argparse
 import numpy as np
@@ -208,6 +213,8 @@ def main():
     parser.add_argument('--seed', type=int, default=3407)
     args = parser.parse_args()
 
+    print('11111')
+
     # 初始设置
     set_seed(args.seed)
     os.makedirs(config.MODEL_OUTPUT_DIR, exist_ok=True)
@@ -229,7 +236,7 @@ def main():
         model = VisMFN(**model_kwargs)
     model = model.to(config.DEVICE)
 
-    # 建议修改为
+    # loss
     criterion = create_loss_function(train_labels, 
                                      loss_type=args.loss_type, 
                                      use_weights=args.weighted_loss, 
@@ -238,7 +245,8 @@ def main():
                                      label_smoothing=config.LABEL_SMOOTHING)
     
     # 优化器参数
-    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
+    # optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
+    optimizer = optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
     
     # 学习率
     scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN / config.LEARNING_RATE) # warmup + 余弦退火
@@ -336,3 +344,7 @@ def main():
     tb_writer.close()
     logger.info("训练完成！")
     logger.info(f"最佳验证准确率: {best_accuracy:.2f}%")
+
+
+if __name__ == '__main__':
+    main()

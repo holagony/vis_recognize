@@ -6,7 +6,7 @@
 # 特点: 让Focal Loss自动处理不平衡，避免双重矫正
 # 适用: 轻中度不平衡，想要最佳平衡性能
 # ===========================================
-nohup python train.py --loss_type focal &
+nohup python train.py --loss_type crossentropy --weighted_sampler --early_stopping &
 
 # ===========================================
 # 方案2: Focal Loss + Weighted Sampler（双重保障）
