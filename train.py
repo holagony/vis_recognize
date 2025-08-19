@@ -291,7 +291,11 @@ def main():
     # 恢复训练
     if args.resume and os.path.exists(args.resume):
         logger.info(f"从检查点恢复训练: {args.resume}")
-        checkpoint = torch.load(args.resume, map_location=config.DEVICE)
+        try:
+            checkpoint = torch.load(args.resume, map_location=config.DEVICE, weights_only=True)
+        except:
+            checkpoint = torch.load(args.resume, map_location=config.DEVICE, weights_only=False)
+        
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1

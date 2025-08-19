@@ -24,7 +24,10 @@ def load_model(model_path):
     '''
     加载训练好的模型
     '''
-    checkpoint = torch.load(model_path, map_location=config.DEVICE)
+    try:
+        checkpoint = torch.load(model_path, map_location=config.DEVICE, weights_only=True)
+    except:
+        checkpoint = torch.load(model_path, map_location=config.DEVICE, weights_only=False)
 
     if config.MODEL_TYPE == 'vismfn':
         if isinstance(checkpoint, dict) and 'model_config' in checkpoint:
@@ -67,7 +70,7 @@ def load_test_images(data_dir_path):
         if not os.path.isdir(class_dir):
             continue
 
-        img_patterns = ["*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.png", "*.PNG"]
+        img_patterns = ["*.jpg", "*.jpeg", "*.png"]
         for pattern in img_patterns:
             for img_path in glob.glob(os.path.join(class_dir, pattern)):
                 all_image_paths.append(img_path)
@@ -245,7 +248,7 @@ def run_single_image_inference(image_path, model_path):
 
 
 if __name__ == "__main__":
-    model_path = r'C:\Users\mjynj\Desktop\vis_best.pth'
+    model_path = r'C:/Users/mjynj/Desktop/vis_recognize/results/models/vis_best.pth'
     info, report = run_dataset_evaluation(model_path)
     print(info)
     print('---------------------------------')
