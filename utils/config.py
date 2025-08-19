@@ -24,6 +24,25 @@ NORM_STD = [0.229, 0.224, 0.225]
 DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
 USE_AUGMENTATION = True  # 是否启用数据增强
 
+# 数据增强配置
+AUGMENTATION_CONFIG = {
+    'enable_advanced_aug': True,      # 是否启用高级增强
+    'geometric_aug_prob': 0.3,        # 几何变换概率
+    'weather_sim_prob': 0.2,          # 天气模拟概率
+    'noise_aug_prob': 0.15,           # 噪声增强概率
+    
+    # 第3类特殊增强配置
+    'class_3_enhancement': {
+        'brightness_prob': 0.7,        # 亮度调整概率
+        'contrast_prob': 0.6,          # 对比度调整概率
+        'sharpening_prob': 0.4,        # 锐化概率
+        'blur_prob': 0.3,              # 模糊概率
+        'color_prob': 0.4,             # 色彩增强概率
+        'rotation_prob': 0.4,          # 旋转概率
+        'crop_prob': 0.3,              # 裁剪概率
+    }
+}
+
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
@@ -43,12 +62,12 @@ BETAS = (0.9, 0.999)
 EPS = 1e-8
 
 # warmup + 余弦退火 参数
-WARMUP_EPOCHS = 8
+WARMUP_EPOCHS = 4
 WARMUP_FACTOR = 0.1
-ETA_MIN = 0.01
+ETA_MIN = 1e-6
 
 # 早停配置
-EARLY_STOPPING_PATIENCE = 8  # 早停耐心值
+EARLY_STOPPING_PATIENCE = 10  # 早停耐心值
 EARLY_STOPPING_MIN_DELTA = 0.005  # 最小改进阈值
 
 # 损失函数超参数

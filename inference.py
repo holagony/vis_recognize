@@ -1,6 +1,7 @@
 import os
 import glob
 import numpy as np
+import pandas as pd
 from collections import Counter
 from PIL import Image
 import torch
@@ -13,6 +14,10 @@ from datasets.vis_dataset import VisibilityDataset, InputResize
 from datasets.vis_dataloader import collate_fn_filter_none, worker_init_fn
 from datasets.feature_extraction import feature_extraction_block
 from utils import config
+from tqdm import tqdm
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 def load_model(model_path):
@@ -39,7 +44,7 @@ def load_model(model_path):
     else:
         model.load_state_dict(checkpoint)
 
-    print("模型加载成功")
+    model = model.to(config.DEVICE)
     model.eval()
 
     return model
@@ -81,7 +86,7 @@ def evaluate_dataset(model, data_loader):
 
     model.eval()
     with torch.no_grad():
-        for batch_data in data_loader:
+        for batch_data in tqdm(data_loader):
             if batch_data is None:
                 continue
 
@@ -148,6 +153,23 @@ def run_dataset_evaluation(model_path):
     test_pred, test_true, test_prob = evaluate_dataset(model, test_loader)
     info, report = calculate_metrics(test_true, test_pred, num_classes=5)
 
+    # 生成混淆矩阵
+    cm = confusion_matrix(test_true, test_pred)
+    
+    # 创建混淆矩阵可视化
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=[f'Level_{i}' for i in range(config.NUM_CLASSES)],
+                yticklabels=[f'Level_{i}' for i in range(config.NUM_CLASSES)])
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix')
+    plt.tight_layout()
+    
+    # 保存混淆矩阵图
+    plt.savefig('confusion_matrix.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
     return info, report
 
 
@@ -220,3 +242,12 @@ def run_single_image_inference(image_path, model_path):
     }
 
     return result
+
+
+if __name__ == "__main__":
+    model_path = r'C:\Users\mjynj\Desktop\vis_best.pth'
+    info, report = run_dataset_evaluation(model_path)
+    print(info)
+    print('---------------------------------')
+    print()
+    print(report)

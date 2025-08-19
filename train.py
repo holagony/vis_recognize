@@ -272,8 +272,8 @@ def main():
     optimizer = optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
     
     # 学习率
-    # scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN) # warmup + 余弦退火
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5)
+    scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN) # warmup + 余弦退火
+    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5)
 
     # 混合精度训练
     try:
@@ -298,13 +298,17 @@ def main():
         best_accuracy = checkpoint.get('best_accuracy', 0.0)
         logger.info(f"恢复训练从第 {start_epoch} 轮开始，当前最佳准确率: {best_accuracy:.4f}")
     
+    # 早停初始化
+    if args.early_stopping:
+        early_stopping = EarlyStopping(patience=config.EARLY_STOPPING_PATIENCE, min_delta=config.EARLY_STOPPING_MIN_DELTA)
+
     # 训练循环
     logger.info("开始训练...")
     for epoch in range(start_epoch, config.EPOCHS):
         train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler)
         val_loss, val_metrics = validate(model, val_loader, criterion)
-        scheduler.step() # update learning rate
-        # scheduler.step(val_loss)
+        scheduler.step() # update learning rate for LambdaLR
+        # scheduler.step(val_loss) # for ReduceLROnPlateau
         
         # TensorBoard结果记录
         tb_writer.add_scalar('Loss/Train', train_loss, epoch)
@@ -349,10 +353,9 @@ def main():
 
         # 早停
         if args.early_stopping:
-            early_stopping = EarlyStopping(patience=config.EARLY_STOPPING_PATIENCE, min_delta=config.EARLY_STOPPING_MIN_DELTA)
             if early_stopping(val_balanced_acc):
                 logger.info(f'早停触发！在第 {epoch+1} 轮停止训练')
-                logger.info(f'最佳验证准确率: {best_accuracy:.2f}%')
+                logger.info(f'最佳验证平衡准确率: {best_accuracy:.2f}%')
                 break
 
     # 保存最终模型
