@@ -84,21 +84,13 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
 
         batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
         
-        # 对融合后的特征进行标准化
-        # 前3个通道使用ImageNet标准化参数
-        rgb_mean = [0.485, 0.456, 0.406]
-        rgb_std = [0.229, 0.224, 0.225]
+        # 对融合后的特征进行Z-score标准化
+        # 计算每个通道的均值和标准差
+        batch_mean = batch_features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
+        batch_std = batch_features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
         
-        # 其余通道使用默认参数
-        other_mean = [0.0] * (num_channels - 3)
-        other_std = [1.0] * (num_channels - 3)
-        
-        # 标准化
-        mean = rgb_mean + other_mean
-        std = rgb_std + other_std
-        mean_tensor = torch.tensor(mean, device=batch_features.device).view(-1, 1, 1)
-        std_tensor = torch.tensor(std, device=batch_features.device).view(-1, 1, 1)
-        batch_features = (batch_features - mean_tensor) / std_tensor
+        # Z-score标准化：(x - mean) / std，结果均值0，标准差1
+        batch_features = (batch_features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
 
         # 计算loss
         if scaler is not None:
@@ -189,21 +181,10 @@ def validate(model, dataloader, criterion):
 
             batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
             
-            # 对融合后的特征进行标准化
-            # 前3个通道使用ImageNet标准化参数
-            rgb_mean = [0.485, 0.456, 0.406]
-            rgb_std = [0.229, 0.224, 0.225]
-            
-            # 其余通道使用默认参数
-            other_mean = [0.0] * (num_channels - 3)
-            other_std = [1.0] * (num_channels - 3)
-            
-            # 标准化
-            mean = rgb_mean + other_mean
-            std = rgb_std + other_std
-            mean_tensor = torch.tensor(mean, device=batch_features.device).view(-1, 1, 1)
-            std_tensor = torch.tensor(std, device=batch_features.device).view(-1, 1, 1)
-            batch_features = (batch_features - mean_tensor) / std_tensor
+            # 对融合后的特征进行Z-score标准化
+            batch_mean = batch_features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
+            batch_std = batch_features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
+            batch_features = (batch_features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
 
             # 生成预测结果
             outputs = model(batch_features)
@@ -255,7 +236,7 @@ def main():
     # 创建模型
     if config.MODEL_TYPE == 'resnet':
         # model = resnet50_cbam(pretrained=False, in_channels=26)
-        model = resnet50(pretrained=False, in_channels=26, use_dilation=True, dilation_rates=[1, 1, 2, 4])
+        model = resnet50(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 2, 4])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)

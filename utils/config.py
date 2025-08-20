@@ -24,25 +24,6 @@ NORM_STD = [0.229, 0.224, 0.225]
 DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
 USE_AUGMENTATION = True  # 是否启用数据增强
 
-# 数据增强配置
-AUGMENTATION_CONFIG = {
-    'enable_advanced_aug': True,      # 是否启用高级增强
-    'geometric_aug_prob': 0.3,        # 几何变换概率
-    'weather_sim_prob': 0.2,          # 天气模拟概率
-    'noise_aug_prob': 0.15,           # 噪声增强概率
-    
-    # 第3类特殊增强配置
-    'class_3_enhancement': {
-        'brightness_prob': 0.7,        # 亮度调整概率
-        'contrast_prob': 0.6,          # 对比度调整概率
-        'sharpening_prob': 0.4,        # 锐化概率
-        'blur_prob': 0.3,              # 模糊概率
-        'color_prob': 0.4,             # 色彩增强概率
-        'rotation_prob': 0.4,          # 旋转概率
-        'crop_prob': 0.3,              # 裁剪概率
-    }
-}
-
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
@@ -96,7 +77,7 @@ TRANSMISSION_PATCH_SIZE = 5
 TRANSMISSION_GUIDED_RADIUS = 25
 TRANSMISSION_GUIDED_EPS = 1e-3
 DETAIL_GUIDED_RADIUS = 8
-DETAIL_GUIDED_EPS = 0.02**2
+DETAIL_GUIDED_EPS = 0.0004
 SPECTRAL_ENHANCEMENT_FACTOR = 2.2 # 轻微增加光谱增强
 
 

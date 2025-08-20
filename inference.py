@@ -100,21 +100,13 @@ def evaluate_dataset(model, data_loader):
             # 特征提取：使用批处理方式
             features, num_channels = feature_extraction_block(original_images, augmented_images)
             
-            # 对融合后的特征进行标准化
-            # 前3个通道使用ImageNet标准化参数
-            rgb_mean = [0.485, 0.456, 0.406]
-            rgb_std = [0.229, 0.224, 0.225]
+            # 对融合后的特征进行Z-score标准化
+            # 计算每个通道的均值和标准差
+            batch_mean = features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
+            batch_std = features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
             
-            # 其余通道使用默认参数
-            other_mean = [0.0] * (num_channels - 3)
-            other_std = [1.0] * (num_channels - 3)
-            
-            # 标准化
-            mean = rgb_mean + other_mean
-            std = rgb_std + other_std
-            mean_tensor = torch.tensor(mean, device=features.device).view(-1, 1, 1)
-            std_tensor = torch.tensor(std, device=features.device).view(-1, 1, 1)
-            features = (features - mean_tensor) / std_tensor
+            # Z-score标准化：(x - mean) / std，结果均值0，标准差1
+            features = (features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
 
             outputs = model(features)
             probabilities = torch.softmax(outputs, dim=1)
@@ -204,16 +196,13 @@ def run_single_image_inference(image_path, model_path):
     # 特征提取：使用批处理方式
     features, num_channels = feature_extraction_block(original_batch, augmented_batch)
 
-    # 特征标准化
-    rgb_mean = [0.485, 0.456, 0.406]
-    rgb_std = [0.229, 0.224, 0.225]
-    other_mean = [0.0] * (num_channels - 3)
-    other_std = [1.0] * (num_channels - 3)
-    mean = rgb_mean + other_mean
-    std = rgb_std + other_std
-    mean_tensor = torch.tensor(mean).view(-1, 1, 1).to(features.device)
-    std_tensor = torch.tensor(std).view(-1, 1, 1).to(features.device)
-    features = (features - mean_tensor) / std_tensor
+    # 特征Z-score标准化
+    # 计算每个通道的均值和标准差
+    batch_mean = features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
+    batch_std = features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
+    
+    # Z-score标准化：(x - mean) / std，结果均值0，标准差1
+    features = (features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
 
     # 确保特征在正确的设备上
     features = features.to(config.DEVICE)

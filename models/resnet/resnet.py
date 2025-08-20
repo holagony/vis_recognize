@@ -1,19 +1,4 @@
-import math
-import torch
 import torch.nn as nn
-import torch.utils.model_zoo as model_zoo
-from utils import config
-
-
-__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']
-
-model_urls = {
-    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
-    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'
-}
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -21,19 +6,40 @@ def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
+class SEModule(nn.Module):
+    '''
+    SE-Net 注意力模块
+    '''
+
+    def __init__(self, channels, reduction=16):
+        super(SEModule, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channels, channels // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channels // reduction, channels, bias=False), nn.Sigmoid())
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, use_se=False, se_reduction=16):
         super(BasicBlock, self).__init__()
+        self.use_se = use_se
+
         # 支持空洞卷积
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, 
-                               padding=dilation, bias=False, dilation=dilation)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, 
-                               padding=dilation, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=dilation, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes)
+
+        # SE注意力模块
+        if use_se:
+            self.se = SEModule(planes, se_reduction)
 
         self.downsample = downsample
         self.stride = stride
@@ -48,6 +54,10 @@ class BasicBlock(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
 
+        # 应用SE注意力
+        if self.use_se:
+            out = self.se(out)
+
         if self.downsample is not None:
             residual = self.downsample(x)
 
@@ -60,17 +70,22 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, use_se=False, se_reduction=16):
         super(Bottleneck, self).__init__()
+        self.use_se = use_se
+
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         # 支持空洞卷积
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, 
-                               padding=dilation, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
+
+        # SE注意力模块
+        if use_se:
+            self.se = SEModule(planes * 4, se_reduction)
 
         self.downsample = downsample
         self.stride = stride
@@ -89,6 +104,10 @@ class Bottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
 
+        # 应用SE注意力
+        if self.use_se:
+            out = self.se(out)
+
         if self.downsample is not None:
             residual = self.downsample(x)
 
@@ -100,14 +119,15 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=5, in_channels=26, 
-                 use_dilation=True, dilation_rates=None):
+    def __init__(self, block, layers, num_classes=5, in_channels=26, use_dilation=True, dilation_rates=None, use_se=False, se_reduction=16):
         self.inplanes = 64
         super(ResNet, self).__init__()
 
         self.in_channels = in_channels
         self.use_dilation = use_dilation
-        
+        self.use_se = use_se
+        self.se_reduction = se_reduction
+
         # 设置默认的空洞率
         if dilation_rates is None:
             if use_dilation:
@@ -122,13 +142,13 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        
+
         # 使用空洞卷积创建层
         self.layer1 = self._make_layer(block, 64, layers[0], dilation=self.dilation_rates[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilation=self.dilation_rates[1])
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilation=self.dilation_rates[2])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilation=self.dilation_rates[3])
-        
+
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -158,18 +178,16 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, 
-                                               kernel_size=1, stride=stride, bias=False),
-                                     nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
 
         layers = []
         # 第一个block处理stride和dilation
-        layers.append(block(self.inplanes, planes, stride, downsample, dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation, use_se=self.use_se, se_reduction=self.se_reduction))
         self.inplanes = planes * block.expansion
-        
+
         # 后续block保持相同的dilation
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation))
+            layers.append(block(self.inplanes, planes, dilation=dilation, use_se=self.use_se, se_reduction=self.se_reduction))
 
         return nn.Sequential(*layers)
 
@@ -191,56 +209,27 @@ class ResNet(nn.Module):
         return x
 
 
-def resnet18(pretrained=False, in_channels=26, use_dilation=True, **kwargs):
-    model = ResNet(BasicBlock, [2, 2, 2, 2], in_channels=in_channels, 
-                   use_dilation=use_dilation, **kwargs)
-    if pretrained and in_channels == 3:
-        pretrained_state_dict = model_zoo.load_url(model_urls['resnet18'])
-        now_state_dict = model.state_dict()
-        now_state_dict.update(pretrained_state_dict)
-        model.load_state_dict(now_state_dict)
+def resnet18(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+    model = ResNet(BasicBlock, [2, 2, 2, 2], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
+
     return model
 
 
-def resnet34(pretrained=False, in_channels=26, use_dilation=True, **kwargs):
-    model = ResNet(BasicBlock, [3, 4, 6, 3], in_channels=in_channels, 
-                   use_dilation=use_dilation, **kwargs)
-    if pretrained and in_channels == 3:
-        pretrained_state_dict = model_zoo.load_url(model_urls['resnet34'])
-        now_state_dict = model.state_dict()
-        now_state_dict.update(pretrained_state_dict)
-        model.load_state_dict(now_state_dict)
+def resnet34(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+    model = ResNet(BasicBlock, [3, 4, 6, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
 
 
-def resnet50(pretrained=False, in_channels=26, use_dilation=True, **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], in_channels=in_channels, 
-                   use_dilation=use_dilation, **kwargs)
-    if pretrained and in_channels == 3:
-        pretrained_state_dict = model_zoo.load_url(model_urls['resnet50'])
-        now_state_dict = model.state_dict()
-        now_state_dict.update(pretrained_state_dict)
-        model.load_state_dict(now_state_dict)
+def resnet50(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
 
 
-def resnet101(pretrained=False, in_channels=26, use_dilation=True, **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 23, 3], in_channels=in_channels, 
-                   use_dilation=use_dilation, **kwargs)
-    if pretrained and in_channels == 3:
-        pretrained_state_dict = model_zoo.load_url(model_urls['resnet101'])
-        now_state_dict = model.state_dict()
-        now_state_dict.update(pretrained_state_dict)
-        model.load_state_dict(now_state_dict)
+def resnet101(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 23, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
 
 
-def resnet152(pretrained=False, in_channels=26, use_dilation=True, **kwargs):
-    model = ResNet(Bottleneck, [3, 8, 36, 3], in_channels=in_channels, 
-                   use_dilation=use_dilation, **kwargs)
-    if pretrained and in_channels == 3:
-        pretrained_state_dict = model_zoo.load_url(model_urls['resnet152'])
-        now_state_dict = model.state_dict()
-        now_state_dict.update(pretrained_state_dict)
-        model.load_state_dict(now_state_dict)
+def resnet152(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+    model = ResNet(Bottleneck, [3, 8, 36, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
