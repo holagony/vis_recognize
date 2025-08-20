@@ -16,7 +16,7 @@ from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50
-from utils.utils import set_seed, setup_logging, get_memory_usage
+from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
 from utils.loss import create_loss_function
 from utils.metric import calculate_metrics
 from utils import config
@@ -83,14 +83,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
         labels = labels.to(config.DEVICE)
 
         batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
-        
-        # 对融合后的特征进行Z-score标准化
-        # 计算每个通道的均值和标准差
-        batch_mean = batch_features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
-        batch_std = batch_features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
-        
-        # Z-score标准化：(x - mean) / std，结果均值0，标准差1
-        batch_features = (batch_features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
+        batch_features = normalize_feature_26channels(batch_features) # 26通道标准化
 
         # 计算loss
         if scaler is not None:
@@ -180,12 +173,8 @@ def validate(model, dataloader, criterion):
             labels = labels.to(config.DEVICE)
 
             batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
+            batch_features = normalize_feature_26channels(batch_features) # 26通道标准化
             
-            # 对融合后的特征进行Z-score标准化
-            batch_mean = batch_features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
-            batch_std = batch_features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
-            batch_features = (batch_features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
-
             # 生成预测结果
             outputs = model(batch_features)
             loss = criterion(outputs, labels)

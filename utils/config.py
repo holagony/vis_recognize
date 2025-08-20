@@ -67,9 +67,9 @@ EARLY_STOPPING_MIN_DELTA = 0.005  # 最小改进阈值
 # 损失函数超参数
 FOCAL_GAMMA = 2.0 # 标准Focal Loss的gamma，适合中等不平衡
 FOCAL_ALPHA = 1.0 # 标准Focal Loss alpha参数
-WEIGHT_MODE = 'sqrt_balanced' # 平方根平衡权重，缓解不平衡影响
-SMOOTH_FACTOR = 0.05 # 减少平滑因子，保持类别区分度
-LABEL_SMOOTHING = 0.01 # 不平衡任务需减少平滑，避免主导类别的概率泄露到罕见类别。
+WEIGHT_MODE = 'balanced'
+SMOOTH_FACTOR = 0.03
+LABEL_SMOOTHING = 0.01
 
 # 特征提取块参数
 TRANSMISSION_OMEGA = 0.95

@@ -12,6 +12,7 @@ from models.resnet.resnet_cbam import resnet50_cbam
 from datasets.vis_dataset import VisibilityDataset, InputResize
 from datasets.vis_dataloader import collate_fn_filter_none, worker_init_fn
 from datasets.feature_extraction import feature_extraction_block
+from utils.utils import normalize_feature_26channels
 from utils import config
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
@@ -99,14 +100,7 @@ def evaluate_dataset(model, data_loader):
 
             # 特征提取：使用批处理方式
             features, num_channels = feature_extraction_block(original_images, augmented_images)
-            
-            # 对融合后的特征进行Z-score标准化
-            # 计算每个通道的均值和标准差
-            batch_mean = features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
-            batch_std = features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
-            
-            # Z-score标准化：(x - mean) / std，结果均值0，标准差1
-            features = (features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
+            features = normalize_feature_26channels(features) # 26通道标准化
 
             outputs = model(features)
             probabilities = torch.softmax(outputs, dim=1)
@@ -195,14 +189,7 @@ def run_single_image_inference(image_path, model_path):
     
     # 特征提取：使用批处理方式
     features, num_channels = feature_extraction_block(original_batch, augmented_batch)
-
-    # 特征Z-score标准化
-    # 计算每个通道的均值和标准差
-    batch_mean = features.mean(dim=[0, 2, 3], keepdim=True)  # (1, C, 1, 1)
-    batch_std = features.std(dim=[0, 2, 3], keepdim=True)    # (1, C, 1, 1)
-    
-    # Z-score标准化：(x - mean) / std，结果均值0，标准差1
-    features = (features - batch_mean) / (batch_std + 1e-8)  # 加1e-8避免除零
+    features = normalize_feature_26channels(features) # 26通道标准化
 
     # 确保特征在正确的设备上
     features = features.to(config.DEVICE)
