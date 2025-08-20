@@ -1,7 +1,6 @@
 import os
 import glob
 import numpy as np
-import pandas as pd
 from collections import Counter
 from PIL import Image
 import torch

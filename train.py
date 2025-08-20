@@ -15,6 +15,7 @@ from datasets.vis_dataloader import get_dataloader
 from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
+from models.resnet.resnet import resnet50
 from utils.utils import set_seed, setup_logging, get_memory_usage
 from utils.loss import create_loss_function
 from utils.metric import calculate_metrics
@@ -253,7 +254,8 @@ def main():
 
     # 创建模型
     if config.MODEL_TYPE == 'resnet':
-        model = resnet50_cbam(pretrained=False, in_channels=26)
+        # model = resnet50_cbam(pretrained=False, in_channels=26)
+        model = resnet50(pretrained=False, in_channels=26, use_dilation=True, dilation_rates=[1, 1, 2, 4])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
@@ -372,4 +374,14 @@ def main():
 
 
 if __name__ == '__main__':
+    import sys
+    
+    # 模拟命令行参数
+    sys.argv = [
+        'train.py',
+        '--loss_type', 'crossentropy',
+        '--weighted_sampler',
+        '--early_stopping'
+    ]
+    
     main()
