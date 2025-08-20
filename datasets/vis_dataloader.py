@@ -26,7 +26,7 @@ def img_dataloader(data_dir_path):
         if not os.path.isdir(class_dir):
             continue
 
-        img_patterns = ["*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.png", "*.PNG"]
+        img_patterns = ["*.jpg", "*.jpeg", "*.png"]
         for pattern in img_patterns:
             for img_path in glob.glob(os.path.join(class_dir, pattern)):
                 all_img_paths.append(img_path)

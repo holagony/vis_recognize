@@ -18,7 +18,12 @@ class FocalLoss(nn.Module):
 
     def forward(self, inputs, targets):
         ce_loss = nn.CrossEntropyLoss(weight=self.weight, reduction='none', label_smoothing=self.label_smoothing)(inputs, targets)
+        
+        # 计算概率：pt = p_t if y=1 else 1-p_t
+        # 对于正确类别的概率
         pt = torch.exp(-ce_loss)
+        # 确保数值稳定性
+        pt = torch.clamp(pt, min=1e-7, max=1.0)
         focal_loss = self.alpha * (1 - pt)**self.gamma * ce_loss
 
         if self.size_average:
@@ -33,7 +38,7 @@ def create_loss_function(labels, loss_type='crossentropy', alpha=1, gamma=2, use
     labels: 训练标签
     loss_type: 损失函数类型 ('crossentropy' 或 'focal')
     use_weights: 是否在损失函数中使用类别权重（仅CrossEntropyLoss有效）
-    weight_mode: 权重计算模式 ('balanced', 'sqrt_balanced', 'log_balanced')
+    weight_mode: 权重计算模式 ('balanced', 'sqrt_balanced')
     smooth_factor: 权重平滑因子，减少极端权重
     label_smoothing: 标签平滑参数，有助于提高泛化能力
     '''
@@ -43,13 +48,13 @@ def create_loss_function(labels, loss_type='crossentropy', alpha=1, gamma=2, use
     else:
         if use_weights:
             label_counts = Counter(labels)
-            unique_labels = np.unique(labels)
+            unique_labels = list(label_counts.keys())
             total_samples = len(labels)
 
-            if weight_mode == 'balanced':  # 1:10
+            if weight_mode == 'balanced':
                 class_weights = compute_class_weight('balanced', classes=unique_labels, y=labels)
 
-            elif weight_mode == 'sqrt_balanced':  # 1:100
+            elif weight_mode == 'sqrt_balanced':
                 class_weights = []
                 for label in unique_labels:
                     count = label_counts[label]
@@ -57,26 +62,27 @@ def create_loss_function(labels, loss_type='crossentropy', alpha=1, gamma=2, use
                     class_weights.append(weight)
                 class_weights = np.array(class_weights)
 
-            elif weight_mode == 'log_balanced':  # 1:1000
-                class_weights = []
-                for label in unique_labels:
-                    count = label_counts[label]
-                    weight = np.log(total_samples / count + 1)
-                    class_weights.append(weight)
-                class_weights = np.array(class_weights)
+            # 权重平滑处理
+            if len(class_weights) > 0:
+                weight_range = class_weights.max() - class_weights.min()
+                if weight_range > 1e-8:  # 避免数值不稳定
+                    normalized_weights = (class_weights - class_weights.min()) / weight_range
+                    mean_weight = normalized_weights.mean()
+                    class_weights = (1 - smooth_factor) * normalized_weights + smooth_factor * mean_weight
 
-            # 权重平滑：w_smooth = (1-smooth_factor) * w + smooth_factor * 1.0
-            class_weights = (1 - smooth_factor) * class_weights + smooth_factor * np.ones_like(class_weights)
 
-            # 处理缺失的类别
-            weight_dict = dict(zip(unique_labels, class_weights))
+            # 缺失类别处理
+            weight_dict = dict(zip(unique_labels, class_weights))            
+            default_weight = np.mean(class_weights) if len(class_weights) > 0 else 1.0
             final_weights = []
+
             for i in range(config.NUM_CLASSES):
                 if i in weight_dict:
                     final_weights.append(weight_dict[i])
                 else:
-                    final_weights.append(1.0)
+                    final_weights.append(default_weight)
 
+            # 创建权重张量并移动到指定设备
             weights_tensor = torch.FloatTensor(final_weights).to(config.DEVICE)
         else:
             weights_tensor = None
