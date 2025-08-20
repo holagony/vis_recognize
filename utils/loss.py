@@ -52,7 +52,7 @@ def create_loss_function(labels, loss_type='crossentropy', alpha=1, gamma=2, use
             total_samples = len(labels)
 
             if weight_mode == 'balanced':
-                class_weights = compute_class_weight('balanced', classes=unique_labels, y=labels)
+                class_weights = compute_class_weight('balanced', classes=np.array(unique_labels), y=np.array(labels))
 
             elif weight_mode == 'sqrt_balanced':
                 class_weights = []
