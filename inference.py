@@ -100,7 +100,7 @@ def evaluate_dataset(model, data_loader):
 
             # 特征提取：使用批处理方式
             features, num_channels = feature_extraction_block(original_images, augmented_images)
-            features = normalize_feature_26channels(features) # 26通道标准化
+            features = normalize_feature_26channels(features, depth_ch=1)
 
             outputs = model(features)
             probabilities = torch.softmax(outputs, dim=1)
@@ -189,7 +189,7 @@ def run_single_image_inference(image_path, model_path):
     
     # 特征提取：使用批处理方式
     features, num_channels = feature_extraction_block(original_batch, augmented_batch)
-    features = normalize_feature_26channels(features) # 26通道标准化
+    features = normalize_feature_26channels(features, depth_ch=1)
 
     # 确保特征在正确的设备上
     features = features.to(config.DEVICE)

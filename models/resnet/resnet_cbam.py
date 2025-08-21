@@ -140,7 +140,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=5, in_channels=26):
+    def __init__(self, block, layers, num_classes=5, in_channels=11):
         self.inplanes = 64
         super(ResNet, self).__init__()
 
@@ -228,7 +228,7 @@ class ResNet(nn.Module):
         return x
 
 
-def resnet18_cbam(pretrained=False, in_channels=26, **kwargs):
+def resnet18_cbam(pretrained=False, in_channels=11, **kwargs):
     model = ResNet(BasicBlock, [2, 2, 2, 2], in_channels=in_channels, **kwargs)
     if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet18'])
@@ -238,7 +238,7 @@ def resnet18_cbam(pretrained=False, in_channels=26, **kwargs):
     return model
 
 
-def resnet34_cbam(pretrained=False, in_channels=26, **kwargs):
+def resnet34_cbam(pretrained=False, in_channels=11, **kwargs):
     model = ResNet(BasicBlock, [3, 4, 6, 3], in_channels=in_channels, **kwargs)
     if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet34'])
@@ -248,7 +248,7 @@ def resnet34_cbam(pretrained=False, in_channels=26, **kwargs):
     return model
 
 
-def resnet50_cbam(pretrained=False, in_channels=26, **kwargs):
+def resnet50_cbam(pretrained=False, in_channels=11, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], in_channels=in_channels, **kwargs)
     if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet50'])
@@ -258,7 +258,7 @@ def resnet50_cbam(pretrained=False, in_channels=26, **kwargs):
     return model
 
 
-def resnet101_cbam(pretrained=False, in_channels=26, **kwargs):
+def resnet101_cbam(pretrained=False, in_channels=11, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 23, 3], in_channels=in_channels, **kwargs)
     if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet101'])
@@ -268,7 +268,7 @@ def resnet101_cbam(pretrained=False, in_channels=26, **kwargs):
     return model
 
 
-def resnet152_cbam(pretrained=False, in_channels=26, **kwargs):
+def resnet152_cbam(pretrained=False, in_channels=11, **kwargs):
     model = ResNet(Bottleneck, [3, 8, 36, 3], in_channels=in_channels, **kwargs)
     if pretrained and in_channels == 3:
         pretrained_state_dict = model_zoo.load_url(model_urls['resnet152'])

@@ -163,23 +163,18 @@ class SimpleSceneDepthBranch(nn.Module):
         self.to(self.device)
 
     def forward(self, x):
-        # 支持批处理输入 (B, 3, H, W) 或单样本输入 (3, H, W)
-        if x.dim() == 3:
-            x = x.unsqueeze(0)  # (3, H, W) -> (1, 3, H, W)
-            single_input = True
-        else:
-            single_input = False
-        
         bottleneck, skips = self.encoder(x)
         d4 = self.dec4(bottleneck, skips['skip4'])
         d3 = self.dec3(d4, skips['skip3'])
         d2 = self.dec2(d3, skips['skip2'])
         d1 = self.dec1(d2, skips['skip1'])
         features_before_final_conv = self.final_upsample(d1)
-        # 添加激活函数限制输出范围，避免数值过大
-        features_before_final_conv = torch.tanh(features_before_final_conv)  # 限制到[-1, 1]
+        output = self.final_conv(features_before_final_conv)
 
-        return features_before_final_conv
+        # 添加激活函数限制输出范围，避免数值过大
+        output = torch.tanh(output)  # 限制到[-1, 1]
+
+        return output
 
 
 #------------------------------细节特征提取分支--------------------------------

@@ -119,7 +119,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=5, in_channels=26, use_dilation=True, dilation_rates=None, use_se=False, se_reduction=16):
+    def __init__(self, block, layers, num_classes=5, in_channels=11, use_dilation=True, dilation_rates=None, use_se=False, se_reduction=16):
         self.inplanes = 64
         super(ResNet, self).__init__()
 
@@ -209,27 +209,27 @@ class ResNet(nn.Module):
         return x
 
 
-def resnet18(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+def resnet18(in_channels=11, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
     model = ResNet(BasicBlock, [2, 2, 2, 2], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
 
     return model
 
 
-def resnet34(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+def resnet34(in_channels=11, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
     model = ResNet(BasicBlock, [3, 4, 6, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
 
 
-def resnet50(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+def resnet50(in_channels=11, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
 
 
-def resnet101(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+def resnet101(in_channels=11, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 23, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model
 
 
-def resnet152(in_channels=26, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
+def resnet152(in_channels=11, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
     model = ResNet(Bottleneck, [3, 8, 36, 3], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)
     return model

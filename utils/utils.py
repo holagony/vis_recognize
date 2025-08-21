@@ -56,7 +56,7 @@ def setup_logging(output_dir):
     return logging
 
 
-def normalize_feature_26channels(batch_features):
+def normalize_feature_26channels(batch_features, depth_ch=1):
     '''
     对特征进行标准化 26通道
     '''
@@ -73,8 +73,8 @@ def normalize_feature_26channels(batch_features):
     extended_std.extend(imagenet_std)
 
     # 深度通道 (16个通道) - 范围[-1,1]，适合使用mean=0, std=1
-    extended_mean.extend([0.0] * 16)
-    extended_std.extend([1.0] * 16)
+    extended_mean.extend([0.0] * depth_ch)
+    extended_std.extend([1.0] * depth_ch)
 
     # 传输通道 (1个通道) - 范围[0,1]，适合使用mean=0.5, std=0.5
     extended_mean.append(0.5)

@@ -122,7 +122,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
         labels = labels.to(config.DEVICE)
 
         batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
-        batch_features = normalize_feature_26channels(batch_features) # 26通道标准化
+        batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
 
         # 计算loss
         if scaler is not None:
@@ -212,7 +212,7 @@ def validate(model, dataloader, criterion):
             labels = labels.to(config.DEVICE)
 
             batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
-            batch_features = normalize_feature_26channels(batch_features) # 26通道标准化
+            batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
             
             # 生成预测结果
             outputs = model(batch_features)
@@ -264,10 +264,10 @@ def main():
 
     # 创建模型
     if config.MODEL_TYPE == 'resnet':
-        # model = resnet50_cbam(pretrained=False, in_channels=26)
-        # model = resnet50(in_channels=26, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
-        # model = resnet18(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
-        model = resnet34(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        # model = resnet50_cbam(pretrained=False, in_channels=11)
+        # model = resnet50(in_channels=11, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
+        # model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        model = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
