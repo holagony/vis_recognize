@@ -45,17 +45,56 @@ class EarlyStopping:
 
 def get_lr_scheduler(optimizer, warmup_epochs, total_epochs, eta_min):
     '''
-    warmup + 余弦退火
+    支持多种学习率调度策略
     '''
-    def lr_lambda(epoch):
-        if epoch < warmup_epochs:
-            # 预热阶段：线性增长
-            return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
-        else:
-            # 余弦退火阶段
-            cos_epoch = epoch - warmup_epochs
-            cos_total = total_epochs - warmup_epochs
-            return eta_min + (1 - eta_min) * 0.5 * (1 + np.cos(np.pi * cos_epoch / cos_total))
+    strategy = getattr(config, 'COSINE_STRATEGY', 'standard')
+    
+    if strategy == 'restart':
+        # 余弦重启策略：每T轮重启一次
+        restart_t = getattr(config, 'COSINE_RESTART_T', 10)
+        restart_mult = getattr(config, 'COSINE_RESTART_MULT', 2.0)
+        
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                # 预热阶段：线性增长
+                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
+            else:
+                # 余弦重启阶段
+                cos_epoch = epoch - warmup_epochs
+                restart_epoch = cos_epoch % restart_t
+                restart_count = cos_epoch // restart_t
+                current_lr = eta_min + (1 - eta_min) * 0.5 * (1 + np.cos(np.pi * restart_epoch / restart_t))
+                # 每次重启后学习率乘以倍数
+                return current_lr * (restart_mult ** restart_count)
+    
+    elif strategy == 'warm_restart':
+        # 热重启策略：重启时学习率逐渐降低
+        restart_t = getattr(config, 'COSINE_RESTART_T', 10)
+        
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                # 预热阶段：线性增长
+                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
+            else:
+                # 热重启阶段
+                cos_epoch = epoch - warmup_epochs
+                restart_epoch = cos_epoch % restart_t
+                restart_count = cos_epoch // restart_t
+                # 每次重启后最小学习率逐渐降低
+                current_eta_min = eta_min * (0.9 ** restart_count)
+                return current_eta_min + (1 - current_eta_min) * 0.5 * (1 + np.cos(np.pi * restart_epoch / restart_t))
+    
+    else:
+        # 标准余弦退火策略
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                # 预热阶段：线性增长
+                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
+            else:
+                # 余弦退火阶段
+                cos_epoch = epoch - warmup_epochs
+                cos_total = total_epochs - warmup_epochs
+                return eta_min + (1 - eta_min) * 0.5 * (1 + np.cos(np.pi * cos_epoch / cos_total))
     
     return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
@@ -225,19 +264,21 @@ def main():
     # 创建模型
     if config.MODEL_TYPE == 'resnet':
         # model = resnet50_cbam(pretrained=False, in_channels=26)
-        model = resnet50(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 2, 4])
+        model = resnet50(in_channels=26, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
     model = model.to(config.DEVICE)
 
-    # loss
+    # 创建损失函数
     criterion = create_loss_function(train_labels, 
-                                     loss_type=args.loss_type, 
-                                     use_weights=args.weighted_loss, 
-                                     weight_mode=config.WEIGHT_MODE,
-                                     smooth_factor=config.SMOOTH_FACTOR, 
-                                     label_smoothing=config.LABEL_SMOOTHING)
+                                   loss_type=args.loss_type, 
+                                   alpha=config.FOCAL_ALPHA, 
+                                   gamma=config.FOCAL_GAMMA, 
+                                   use_weights=True,  # 启用类别权重
+                                   weight_mode=config.WEIGHT_MODE, 
+                                   smooth_factor=config.SMOOTH_FACTOR, 
+                                   label_smoothing=config.LABEL_SMOOTHING)
     
     # 优化器参数
     # optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
@@ -329,8 +370,14 @@ def main():
 
         # 早停
         if args.early_stopping:
-            if early_stopping(val_balanced_acc):
+            # 使用少数类别的平均召回率作为早停指标，而不是整体平衡准确率
+            minority_classes = [2, 3]  # 类别2和3是少数类别
+            minority_recalls = [val_metrics['class_recalls'][i] for i in minority_classes]
+            minority_avg_recall = np.mean(minority_recalls)
+            
+            if early_stopping(minority_avg_recall):
                 logger.info(f'早停触发！在第 {epoch+1} 轮停止训练')
+                logger.info(f'少数类别平均召回率: {minority_avg_recall:.2f}%')
                 logger.info(f'最佳验证平衡准确率: {best_accuracy:.2f}%')
                 break
 
@@ -349,7 +396,7 @@ if __name__ == '__main__':
     # 模拟命令行参数
     sys.argv = [
         'train.py',
-        '--loss_type', 'crossentropy',
+        '--loss_type', 'focal',  # 改为focal loss
         '--weighted_sampler',
         '--early_stopping'
     ]

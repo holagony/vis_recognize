@@ -22,7 +22,7 @@ TARGET_INPUT_SIZE = (256, 256) # (H, W)
 NORM_MEAN = [0.485, 0.456, 0.406]
 NORM_STD = [0.229, 0.224, 0.225]
 DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
-USE_AUGMENTATION = True  # 是否启用数据增强
+USE_AUGMENTATION = False  # 是否启用数据增强
 
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
@@ -38,8 +38,8 @@ RESNET_DILATION_RATES = [1, 1, 2, 4]  # [layer1, layer2, layer3, layer4] 的空�
 # - layer4: dilation=4，进一步增加感受野
 
 # 训练超参数
-BATCH_SIZE = 32
-GRADIENT_ACCUMULATION_STEPS = 4 # 梯度累积
+BATCH_SIZE = 64
+GRADIENT_ACCUMULATION_STEPS = 1 # 梯度累积
 EPOCHS = 60
 NUM_CLASSES = 5
 GRADIENT_CLIP_NORM = 1.0 # 梯度裁剪 5.0
@@ -51,25 +51,37 @@ BETAS = (0.9, 0.999)
 EPS = 1e-8
 
 # warmup + 余弦退火 参数
-WARMUP_EPOCHS = 4        # 预热轮数：建议为总轮数的5-10%
+WARMUP_EPOCHS = 3        # 预热轮数：减少到3轮，更快进入余弦退火
 WARMUP_FACTOR = 0.1      # 预热起始因子：从0.1倍学习率开始
-ETA_MIN = 1e-5           # 最小学习率：建议为基础学习率的1/10到1/100
+ETA_MIN = 5e-6           # 最小学习率：降低到5e-6，提供更大的学习率范围
+
+# 余弦退火策略选择
+COSINE_STRATEGY = 'standard'  # 'standard': 标准余弦退火, 'restart': 余弦重启, 'warm_restart': 热重启
+COSINE_RESTART_T = 10         # 重启周期（仅当使用restart策略时）
+COSINE_RESTART_MULT = 2.0     # 重启后学习率倍数
 
 # 学习率调度说明：
-# 1. 预热阶段(0-4轮)：学习率从 1e-5 线性增长到 1e-4
-# 2. 余弦退火阶段(4-60轮)：学习率按余弦函数从 1e-4 衰减到 1e-5
-# 3. 总学习率变化范围：1e-5 → 1e-4 → 1e-5
+# 1. 预热阶段(0-3轮)：学习率从 5e-6 线性增长到 1e-4
+# 2. 余弦退火阶段(3-60轮)：学习率按余弦函数从 1e-4 衰减到 5e-6
+# 3. 总学习率变化范围：5e-6 → 1e-4 → 5e-6
+# 4. 可选：使用余弦重启策略，每10轮重启一次学习率
 
 # 早停配置
-EARLY_STOPPING_PATIENCE = 5  # 早停耐心值
-EARLY_STOPPING_MIN_DELTA = 0.005  # 最小改进阈值
+EARLY_STOPPING_PATIENCE = 10  # 早停耐心值，从5增加到15
+EARLY_STOPPING_MIN_DELTA = 0.001  # 最小改进阈值，从0.005降低到0.001
 
 # 损失函数超参数
-FOCAL_GAMMA = 2.0 # 标准Focal Loss的gamma，适合中等不平衡
-FOCAL_ALPHA = 1.0 # 标准Focal Loss alpha参数
+FOCAL_GAMMA = 3.0 # 增加gamma值，从2.0到3.0，更关注难分类样本
+FOCAL_ALPHA = 0.25 # 降低alpha值，从1.0到0.25，减少对多数类别的过度关注
 WEIGHT_MODE = 'balanced'
-SMOOTH_FACTOR = 0.03
-LABEL_SMOOTHING = 0.01
+SMOOTH_FACTOR = 0.01  # 降低平滑因子，从0.03到0.01，保持权重差异
+LABEL_SMOOTHING = 0.05  # 增加标签平滑，从0.01到0.05，提高泛化能力
+
+# Focal Loss alpha权重说明：
+# - FOCAL_ALPHA = None: 自动计算类别特定权重（推荐）
+# - FOCAL_ALPHA = [0.1, 0.3, 0.8, 1.0, 0.5]: 手动设置每个类别的权重
+# - 权重范围：[0.1, 1.0]，数值越大表示对该类别越关注
+# - 建议：少数类别（如类别2、3）设置更高的权重（0.8-1.0）
 
 # 特征提取块参数
 TRANSMISSION_OMEGA = 0.95
