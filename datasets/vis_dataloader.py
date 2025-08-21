@@ -35,9 +35,16 @@ def img_dataloader(data_dir_path):
     return all_img_paths, all_labels
 
 
-def create_weighted_sampler(labels):
+def create_weighted_sampler(labels, balance_factor=config.BALANCE_FACTOR):
     '''
-    创建加权采样器来处理不平衡数据集，让训练时各个类别的样本被选中的概率更加均衡。
+    创建加权采样器来处理不平衡数据集，支持可调节的平衡程度。
+    
+    Args:
+        labels: 训练标签列表
+        balance_factor: 平衡因子，控制采样策略的激进程度
+                       - 0.0: 使用原始分布（不进行平衡）
+                       - 0.5: 中等平衡（推荐）
+                       - 1.0: 完全平衡（激进策略）
     '''
     class_counts = Counter(labels)
     total_samples = len(labels)
@@ -47,14 +54,20 @@ def create_weighted_sampler(labels):
     for class_idx in range(config.NUM_CLASSES):
         if class_idx in class_counts:
             epsilon = 1e-5
-            class_weights[class_idx] = total_samples / (config.NUM_CLASSES * (class_counts[class_idx] + epsilon))
+            # 计算完全平衡的权重
+            balanced_weight = total_samples / (config.NUM_CLASSES * (class_counts[class_idx] + epsilon))
+            # 原始权重（1.0）
+            original_weight = 1.0
+            
+            # 使用线性插值混合原始分布和平衡分布
+            class_weights[class_idx] = (1 - balance_factor) * original_weight + balance_factor * balanced_weight
         else:
             class_weights[class_idx] = 1.0
 
     # 为每个样本分配权重
     sample_weights = [class_weights[label] for label in labels]
 
-    return WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
+    return WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=config.USE_SAMPLER_REPLACEMENT)
 
 
 def collate_fn_filter_none(batch):
@@ -102,7 +115,7 @@ def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted
 
     # 创建采样器
     if weighted_sampler:
-        train_sampler = create_weighted_sampler(train_labels)
+        train_sampler = create_weighted_sampler(train_labels, balance_factor=config.BALANCE_FACTOR)
         train_loader = DataLoader(train_dataset, 
                                   batch_size=config.BATCH_SIZE, 
                                   sampler=train_sampler,

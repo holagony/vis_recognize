@@ -15,7 +15,7 @@ from datasets.vis_dataloader import get_dataloader
 from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
-from models.resnet.resnet import resnet50, resnet18
+from models.resnet.resnet import resnet50, resnet34, resnet18
 from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
 from utils.loss import create_loss_function
 from utils.metric import calculate_metrics
@@ -243,7 +243,7 @@ def main():
     parser.add_argument('--resume', type=str, help='恢复训练的检查点路径')
     parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal'], default='crossentropy')
     parser.add_argument('--weighted_sampler', action='store_true', help='是否使用加权采样器') # weighted_sampler/weighted_loss 最好二选一
-    parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重')
+    parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重') # focal alpha
     parser.add_argument('--early_stopping', action='store_true', help='是否启用早停')
     parser.add_argument('--seed', type=int, default=3407)
     args = parser.parse_args()
@@ -256,7 +256,8 @@ def main():
 
     logger.info(f"随机种子: {args.seed}")
     logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
-    logger.info(f"加权策略: 采样器={args.weighted_sampler}, 损失权重={args.weighted_loss}")
+    logger.info(f"加权策略: 采样器={args.weighted_sampler}, 类别权重={args.weighted_loss}")
+    logger.info(f"损失函数: {args.loss_type}")
 
     # 加载数据
     train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=args.weighted_sampler)
@@ -265,7 +266,8 @@ def main():
     if config.MODEL_TYPE == 'resnet':
         # model = resnet50_cbam(pretrained=False, in_channels=26)
         # model = resnet50(in_channels=26, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
-        model = resnet18(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        # model = resnet18(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        model = resnet34(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
@@ -398,6 +400,7 @@ if __name__ == '__main__':
         'train.py',
         '--loss_type', 'focal',  # 改为focal loss
         '--weighted_sampler',
+        '--weighted_loss',
         '--early_stopping'
     ]
     

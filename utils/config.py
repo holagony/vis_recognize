@@ -29,14 +29,6 @@ USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT�
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 MODEL_TYPE = 'resnet'  # 'vismfn' 或 'resnet'
 
-# ResNet空洞卷积配置
-RESNET_USE_DILATION = True  # 是否启用空洞卷积
-RESNET_DILATION_RATES = [1, 1, 2, 4]  # [layer1, layer2, layer3, layer4] 的空洞率
-# 空洞率说明：
-# - layer1, layer2: 保持dilation=1，维持高分辨率特征
-# - layer3: dilation=2，增加感受野
-# - layer4: dilation=4，进一步增加感受野
-
 # 训练超参数
 BATCH_SIZE = 64
 GRADIENT_ACCUMULATION_STEPS = 1 # 梯度累积
@@ -44,16 +36,20 @@ EPOCHS = 60
 NUM_CLASSES = 5
 GRADIENT_CLIP_NORM = 1.0 # 梯度裁剪 5.0
 
+# WeightedRandomSampler采样
+BALANCE_FACTOR = 0.3  # 平衡因子，控制采样策略的激进程度
+USE_SAMPLER_REPLACEMENT = False  # 是否使用替换采样
+
 # AdamW 参数
 LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 0.01
+WEIGHT_DECAY = 1e-3  # 默认1e-2
 BETAS = (0.9, 0.999)
 EPS = 1e-8
 
 # warmup + 余弦退火 参数
-WARMUP_EPOCHS = 3        # 预热轮数：减少到3轮，更快进入余弦退火
-WARMUP_FACTOR = 0.1      # 预热起始因子：从0.1倍学习率开始
-ETA_MIN = 5e-6           # 最小学习率：降低到5e-6，提供更大的学习率范围
+WARMUP_EPOCHS = 5        # 预热轮数
+WARMUP_FACTOR = 0.2      # 预热起始因子：从0.1倍学习率开始
+ETA_MIN = 1e-5           # 最小学习率
 
 # 余弦退火策略选择
 COSINE_STRATEGY = 'standard'  # 'standard': 标准余弦退火, 'restart': 余弦重启, 'warm_restart': 热重启

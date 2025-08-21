@@ -45,7 +45,7 @@ def create_loss_function(labels,
                          weight_mode='balanced', 
                          weight_smoothing=False, 
                          smooth_factor=0.05, 
-                         label_smoothing=0.1):
+                         label_smoothing=0.05):
     '''
     创建损失函数 - 支持CrossEntropyLoss和FocalLoss二选一
     labels: 训练标签
@@ -125,7 +125,7 @@ def create_loss_function(labels,
             alpha_tensor = torch.FloatTensor(alpha_values).to(config.DEVICE)
 
     if loss_type.lower() == 'focal':
-        focal_alpha = alpha_tensor if alpha_tensor is not None else config.ALPHA
-        return FocalLoss(alpha=focal_alpha, gamma=config.GAMMA)
+        focal_alpha = alpha_tensor if alpha_tensor is not None else config.FOCAL_ALPHA
+        return FocalLoss(alpha=focal_alpha, gamma=config.FOCAL_GAMMA)
     else:
         return nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=label_smoothing)
