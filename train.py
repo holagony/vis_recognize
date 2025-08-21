@@ -245,7 +245,7 @@ def main():
     parser.add_argument('--weighted_sampler', action='store_true', help='是否使用加权采样器') # weighted_sampler/weighted_loss 最好二选一
     parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重') # focal alpha
     parser.add_argument('--early_stopping', action='store_true', help='是否启用早停')
-    parser.add_argument('--seed', type=int, default=3407)
+    parser.add_argument('--seed', type=int, default=6666)
     args = parser.parse_args()
 
     # 初始设置
@@ -394,14 +394,29 @@ def main():
 
 if __name__ == '__main__':
     import sys
-    
     # 模拟命令行参数
+    # sys.argv = [
+    #     'train.py',
+    #     '--loss_type', 'focal',  # 改为focal loss
+    #     '--weighted_sampler',
+    #     '--weighted_loss', # --weighted_loss
+    #     '--early_stopping'
+    # ]
+    
+    # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火
+    # sys.argv = [
+    #     'train.py',
+    #     '--loss_type', 'crossentropy',  # 改为focal loss
+    #     '--weighted_loss',
+    #     '--early_stopping'
+    # ]
+
+    # focal + weighted_loss + resnet50 + se + dilation + 余弦退火
     sys.argv = [
         'train.py',
         '--loss_type', 'focal',  # 改为focal loss
-        '--weighted_sampler',
         '--weighted_loss',
         '--early_stopping'
     ]
-    
+
     main()
