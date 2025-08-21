@@ -15,7 +15,7 @@ from datasets.vis_dataloader import get_dataloader
 from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
-from models.resnet.resnet import resnet50
+from models.resnet.resnet import resnet50, resnet18
 from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
 from utils.loss import create_loss_function
 from utils.metric import calculate_metrics
@@ -264,7 +264,8 @@ def main():
     # 创建模型
     if config.MODEL_TYPE == 'resnet':
         # model = resnet50_cbam(pretrained=False, in_channels=26)
-        model = resnet50(in_channels=26, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
+        # model = resnet50(in_channels=26, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
+        model = resnet18(in_channels=26, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
@@ -272,13 +273,12 @@ def main():
 
     # 创建损失函数
     criterion = create_loss_function(train_labels, 
-                                   loss_type=args.loss_type, 
-                                   alpha=config.FOCAL_ALPHA, 
-                                   gamma=config.FOCAL_GAMMA, 
-                                   use_weights=True,  # 启用类别权重
-                                   weight_mode=config.WEIGHT_MODE, 
-                                   smooth_factor=config.SMOOTH_FACTOR, 
-                                   label_smoothing=config.LABEL_SMOOTHING)
+                                     loss_type=args.loss_type, 
+                                     use_weights=args.weighted_loss,  # 启用类别权重
+                                     weight_mode=config.WEIGHT_MODE, 
+                                     weight_smoothing=False, 
+                                     smooth_factor=0.05, 
+                                     label_smoothing=config.LABEL_SMOOTHING)
     
     # 优化器参数
     # optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
