@@ -207,7 +207,50 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         return x
+    
+    def extract_features(self, x):
+        '''
+        提取特征表示，不包含最后的分类层
+        用于对比学习
+        '''
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
 
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        # 不经过最后的分类层，直接返回特征
+        return x
+
+
+class JointModel(nn.Module):
+    def __init__(self, base_encoder, projection_dim=128, num_classes=5):
+        super(JointModel, self).__init__()
+        self.encoder = base_encoder
+        # 投影头：用于对比学习
+        self.projector = nn.Sequential(
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, projection_dim))
+        
+        # 分类头：用于交叉熵损失
+        self.classifier = nn.Linear(512, num_classes)
+    
+    def forward(self, x):
+        # 提取特征 - 获取ResNet的特征表示，而不是分类输出
+        h = self.encoder.extract_features(x)
+        # 投影到对比学习空间
+        z = self.projector(h)
+        # 分类输出
+        logits = self.classifier(h)
+        return h, z, logits
+    
 
 def resnet18(in_channels=11, use_dilation=True, use_se=False, se_reduction=16, **kwargs):
     model = ResNet(BasicBlock, [2, 2, 2, 2], in_channels=in_channels, use_dilation=use_dilation, use_se=use_se, se_reduction=se_reduction, **kwargs)

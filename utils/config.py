@@ -27,7 +27,7 @@ USE_AUGMENTATION = False  # 是否启用数据增强
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
-MODEL_TYPE = 'resnet'  # 'vismfn' 或 'resnet'
+MODEL_TYPE = 'supcon'  # 'vismfn' 或 'resnet' 'supcon'
 
 # 训练超参数
 BATCH_SIZE = 64
@@ -94,3 +94,8 @@ SFRB_OUT_CHANNELS = 64    # 11->64，初始特征提取
 NUM_MSFB_BLOCKS = 2       # 2个MSFB块
 MSFB_CHANNEL_MULTIPLIERS = [2, 4]  # MSFB1: 64*2=128, MSFB2: 64*4=256
 GFFB_OUT_CHANNELS = 512   # 最终输出512通道
+
+# SupCon 训练配置
+SUPCON_TEMPERATURE = 0.07  # 温度参数
+SUPCON_WEIGHT = 0.5        # SupCon 损失权重
+CE_WEIGHT = 0.5            # 交叉熵损失权重

@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from utils.metric import calculate_metrics
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
-from models.resnet.resnet import resnet50, resnet34, resnet18
+from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
 from datasets.vis_dataset import VisibilityDataset, InputResize
 from datasets.vis_dataloader import collate_fn_filter_none, worker_init_fn
 from datasets.feature_extraction import feature_extraction_block
@@ -39,6 +39,11 @@ def load_model(model_path):
 
     elif config.MODEL_TYPE == 'resnet':
         model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+
+    elif config.MODEL_TYPE == 'supcon':
+        # 加载SupCon对比学习模型
+        base_encoder = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        model = JointModel(base_encoder, projection_dim=128, num_classes=5)
 
     # 加载模型权重
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -103,7 +108,15 @@ def evaluate_dataset(model, data_loader):
             features, num_channels = feature_extraction_block(original_images, augmented_images)
             features = normalize_feature_26channels(features, depth_ch=1)
 
-            outputs = model(features)
+            # 根据模型类型进行推理
+            if config.MODEL_TYPE == 'supcon':
+                # SupCon模型：输出特征、投影和分类结果
+                h, z, logits = model(features)
+                outputs = logits  # 使用分类输出进行预测
+            else:
+                # 普通模型：直接输出分类结果
+                outputs = model(features)
+
             probabilities = torch.softmax(outputs, dim=1)
             _, predictions = torch.max(outputs, 1)
 
@@ -186,7 +199,7 @@ def run_single_image_inference(image_path, model_path):
     
     # 将单张图像转换为批处理格式 (1, 3, H, W)
     original_batch = original_image.unsqueeze(0)  # (3, H, W) -> (1, 3, H, W)
-    augmented_batch = augmented_image.unsqueeze(0)  # (3, H, W) -> (1, 3, H, W)
+    augmented_batch = augmented_image.unsqueeze(0)  # (3, 3, H, W) -> (1, 3, H, W)
     
     # 特征提取：使用批处理方式
     features, num_channels = feature_extraction_block(original_batch, augmented_batch)
@@ -197,7 +210,15 @@ def run_single_image_inference(image_path, model_path):
     print(f"最终输入tensor形状: {features.shape}")
 
     with torch.no_grad():
-        outputs = model(features)
+        # 根据模型类型进行推理
+        if config.MODEL_TYPE == 'supcon':
+            # SupCon模型：输出特征、投影和分类结果
+            h, z, logits = model(features)
+            outputs = logits  # 使用分类输出进行预测
+        else:
+            # 普通模型：直接输出分类结果
+            outputs = model(features)
+
         probabilities = torch.softmax(outputs, dim=1)
         confidence, predicted_class = torch.max(probabilities, 1)
 
@@ -219,13 +240,30 @@ def run_single_image_inference(image_path, model_path):
         'feature_channels': num_channels,
         'feature_shape': list(features.shape),
     }
+    
 
     return result
 
 
 if __name__ == "__main__":
     model_path = r'C:/Users/mjynj/Desktop/vis_recognize/results/models/vis_best.pth'
+    
+    # 检查模型类型
+    print(f"当前模型类型: {config.MODEL_TYPE}")
+
+    # 加载测试数据用于特征分析
+    test_paths, test_labels = load_test_images(config.TEST_DATA_ROOT)
+    test_dataset = VisibilityDataset(test_paths, test_labels, is_train=False, augment=False)
+    test_loader = DataLoader(test_dataset, 
+                                batch_size=config.BATCH_SIZE, 
+                                shuffle=False, 
+                                num_workers=0, 
+                                pin_memory=True, 
+                                collate_fn=collate_fn_filter_none, 
+                                worker_init_fn=worker_init_fn)
+
     info, report = run_dataset_evaluation(model_path)
+
     print(info)
     print('---------------------------------')
     print()

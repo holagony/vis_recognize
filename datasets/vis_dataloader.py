@@ -102,7 +102,7 @@ def worker_init_fn():
     random.seed(worker_seed)
 
 
-def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted_sampler=True):
+def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted_sampler=False):
     '''
     获取训练和验证数据加载器
     weighted_sampler：使用加权采样器

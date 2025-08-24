@@ -15,9 +15,9 @@ from datasets.vis_dataloader import get_dataloader
 from datasets.feature_extraction import feature_extraction_block
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
-from models.resnet.resnet import resnet50, resnet34, resnet18
+from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
 from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
-from utils.loss import create_loss_function
+from utils.loss import create_loss_function, supcon_loss
 from utils.metric import calculate_metrics
 from utils import config
 
@@ -99,7 +99,7 @@ def get_lr_scheduler(optimizer, warmup_epochs, total_epochs, eta_min):
     return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=1, epoch=None, scaler=None):
+def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=1, epoch=None, scaler=None, supcon=False):
     '''
     训练一个epoch，
     支持梯度累积和混合精度
@@ -109,6 +109,17 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
     running_loss = 0.0
     all_predictions = []
     all_labels = []
+
+    # SupCon 训练相关
+    if supcon:
+        ce_criterion = criterion  # 原来的 criterion 作为交叉熵损失
+        temperature = config.SUPCON_TEMPERATURE
+        supcon_weight = config.SUPCON_WEIGHT
+        ce_weight = config.CE_WEIGHT
+        
+        # 记录 SupCon 训练的详细损失
+        running_supcon_loss = 0.0
+        running_ce_loss = 0.0
 
     pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}' if epoch is not None else 'Training')
     for batch_idx, batch_data in enumerate(pbar):
@@ -127,13 +138,35 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
         # 计算loss
         if scaler is not None:
             with autocast(device_type='cuda' if torch.cuda.is_available() else 'cpu'):
-                outputs = model(batch_features)
-                loss = criterion(outputs, labels)
+                if supcon:
+                    h, z, logits = model(batch_features) # SupCon 训练：模型输出 h, z, logits
+                    supcon_loss_val = supcon_loss(z, labels, temperature) # supcon loss
+                    ce_loss_val = ce_criterion(logits, labels) # ce loss
+                    loss = supcon_weight * supcon_loss_val + ce_weight * ce_loss_val # 联合loss
+                    
+                    running_supcon_loss += supcon_loss_val.item() * accumulation_steps
+                    running_ce_loss += ce_loss_val.item() * accumulation_steps
+                else:
+                    # 普通训练
+                    outputs = model(batch_features)
+                    loss = criterion(outputs, labels)
+                
                 loss = loss / accumulation_steps
             scaler.scale(loss).backward() # 自动处理梯度溢出
         else:
-            outputs = model(batch_features)
-            loss = criterion(outputs, labels)
+            if supcon:
+                h, z, logits = model(batch_features)
+                supcon_loss_val = supcon_loss(z, labels, temperature)
+                ce_loss_val = ce_criterion(logits, labels)
+                loss = supcon_weight * supcon_loss_val + ce_weight * ce_loss_val
+                
+                running_supcon_loss += supcon_loss_val.item() * accumulation_steps
+                running_ce_loss += ce_loss_val.item() * accumulation_steps
+            else:
+                # 普通训练
+                outputs = model(batch_features)
+                loss = criterion(outputs, labels)
+            
             loss = loss / accumulation_steps
             loss.backward()
         
@@ -153,7 +186,12 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
         running_loss += loss.item() * accumulation_steps  # 恢复原始损失值用于记录
         current_loss = running_loss / (batch_idx + 1)
         
-        _, predicted = torch.max(outputs, 1)
+        # 获取预测结果用于计算准确率
+        if supcon:
+            _, predicted = torch.max(logits, 1)
+        else:
+            _, predicted = torch.max(outputs, 1)
+            
         all_predictions.extend(predicted.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
 
@@ -166,10 +204,18 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
             current_overall_acc = 0.0
 
         # 更新进度条 
-        pbar.set_postfix({'Loss': f'{current_loss:.4f}',
-                          'Overall_Acc': f'{current_overall_acc:.2f}%',
-                          'Bal_Acc': f'{current_balanced_acc:.2f}%',
-                          'Accum': f'{((batch_idx + 1) % accumulation_steps) + 1}/{accumulation_steps}'})
+        if supcon:
+            current_supcon_loss = running_supcon_loss / (batch_idx + 1)
+            current_ce_loss = running_ce_loss / (batch_idx + 1)
+            pbar.set_postfix({'Loss': f'{current_loss:.4f}(CE:{current_ce_loss:.4f} + SupCon:{current_supcon_loss:.4f})',
+                              'Overall_Acc': f'{current_overall_acc:.2f}%',
+                              'Bal_Acc': f'{current_balanced_acc:.2f}%',
+                              'Accum': f'{((batch_idx + 1) % accumulation_steps) + 1}/{accumulation_steps}'})
+        else:
+            pbar.set_postfix({'Loss': f'{current_loss:.4f}',
+                              'Overall_Acc': f'{current_overall_acc:.2f}%',
+                              'Bal_Acc': f'{current_balanced_acc:.2f}%',
+                              'Accum': f'{((batch_idx + 1) % accumulation_steps) + 1}/{accumulation_steps}'})
         
         # TODO: 
         # 按batch记录loss
@@ -188,18 +234,44 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
             optimizer.step()
         optimizer.zero_grad()
     
-    # 生成输出
-    avg_loss = running_loss / len(dataloader)
-    metrics, _ = calculate_metrics(all_labels, all_predictions, config.NUM_CLASSES)
+    # 计算最终指标
+    if len(all_predictions) > 0:
+        clipped_predictions = np.clip(np.array(all_predictions), 0, config.NUM_CLASSES - 1)
+        balanced_acc = 100 * balanced_accuracy_score(all_labels, clipped_predictions)
+        overall_acc = 100 * np.mean(np.array(all_labels) == clipped_predictions)
+    else:
+        balanced_acc = 0.0
+        overall_acc = 0.0
     
-    return avg_loss, metrics
+    # 返回训练结果
+    train_metrics = {'overall_accuracy': overall_acc, 'balanced_accuracy': balanced_acc}
+    
+    # 如果是 SupCon 训练，添加详细损失信息
+    if supcon:
+        final_supcon_loss = running_supcon_loss / len(dataloader)
+        final_ce_loss = running_ce_loss / len(dataloader)
+        train_metrics.update({'supcon_loss': final_supcon_loss, 'ce_loss': final_ce_loss})
+    
+    avg_loss = running_loss / len(dataloader)
+
+    return avg_loss, train_metrics
 
 
-def validate(model, dataloader, criterion):
+def validate(model, dataloader, criterion, supcon=False):
     model.eval()
     running_loss = 0.0
     all_predictions = []
     all_labels = []
+    
+    # SupCon 验证相关
+    if supcon:
+        temperature = config.SUPCON_TEMPERATURE
+        supcon_weight = config.SUPCON_WEIGHT
+        ce_weight = config.CE_WEIGHT
+        
+        # 记录 SupCon 验证的详细损失
+        running_supcon_loss = 0.0
+        running_ce_loss = 0.0
     
     with torch.no_grad():
         for batch_data in dataloader:
@@ -215,8 +287,21 @@ def validate(model, dataloader, criterion):
             batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
             
             # 生成预测结果
-            outputs = model(batch_features)
-            loss = criterion(outputs, labels)
+            if supcon:
+                h, z, logits = model(batch_features) 
+                supcon_loss_val = supcon_loss(z, labels, temperature)
+                ce_loss_val = criterion(logits, labels)
+                loss = supcon_weight * supcon_loss_val + ce_weight * ce_loss_val
+                
+                running_supcon_loss += supcon_loss_val.item()
+                running_ce_loss += ce_loss_val.item()
+                
+                # 使用 logits 进行预测
+                outputs = logits
+            else:
+                # 普通模型：输出 logits
+                outputs = model(batch_features)
+                loss = criterion(outputs, labels)
             
             running_loss += loss.item()
             _, predicted = torch.max(outputs, 1)
@@ -226,6 +311,12 @@ def validate(model, dataloader, criterion):
     # 生成输出
     avg_loss = running_loss / len(dataloader)
     metrics, _ = calculate_metrics(all_labels, all_predictions, config.NUM_CLASSES)
+    
+    # 如果是 SupCon 验证，添加详细损失信息
+    if supcon:
+        final_supcon_loss = running_supcon_loss / len(dataloader)
+        final_ce_loss = running_ce_loss / len(dataloader)
+        metrics.update({'supcon_loss': final_supcon_loss, 'ce_loss': final_ce_loss})
     
     return avg_loss, metrics
 
@@ -268,9 +359,16 @@ def main():
         # model = resnet50(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         # model = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
+
+    elif config.MODEL_TYPE == 'supcon':
+        base_encoder = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        # base_encoder = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        model = JointModel(base_encoder, projection_dim=128, num_classes=5)
+
     model = model.to(config.DEVICE)
 
     # 创建损失函数
@@ -292,10 +390,10 @@ def main():
 
     # 混合精度训练
     try:
-        scaler = GradScaler(device='cuda') if torch.cuda.is_available() else None
+        scaler = GradScaler(device='cuda' if torch.cuda.is_available() else 'cpu')
     except:
         try:
-            scaler = GradScaler() if torch.cuda.is_available() else None
+            scaler = GradScaler()
         except:
             scaler = None
 
@@ -323,15 +421,30 @@ def main():
 
     # 训练循环
     logger.info("开始训练...")
+    # 根据模型类型决定是否启用 SupCon 训练
+    use_supcon = (config.MODEL_TYPE == 'supcon')
+    if use_supcon:
+        logger.info("启用 SupCon 训练模式")
+    
     for epoch in range(start_epoch, config.EPOCHS):
-        train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler)
-        val_loss, val_metrics = validate(model, val_loader, criterion)
+        train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, config.GRADIENT_ACCUMULATION_STEPS, epoch, scaler, supcon=use_supcon)
+        val_loss, val_metrics = validate(model, val_loader, criterion, supcon=use_supcon)
         scheduler.step() # update learning rate for LambdaLR
         # scheduler.step(val_loss) # for ReduceLROnPlateau
         
         # TensorBoard结果记录
         tb_writer.add_scalar('Loss/Train', train_loss, epoch)
         tb_writer.add_scalar('Loss/Validation', val_loss, epoch)
+        
+        # 如果是 SupCon 训练，记录详细损失
+        if use_supcon and 'supcon_loss' in train_metrics:
+            tb_writer.add_scalar('Loss/Train_SupCon', train_metrics['supcon_loss'], epoch)
+            tb_writer.add_scalar('Loss/Train_CE', train_metrics['ce_loss'], epoch)
+            # 记录验证集的详细损失
+            if 'supcon_loss' in val_metrics:
+                tb_writer.add_scalar('Loss/Val_SupCon', val_metrics['supcon_loss'], epoch)
+                tb_writer.add_scalar('Loss/Val_CE', val_metrics['ce_loss'], epoch)
+        
         tb_writer.add_scalar('Accuracy/Train_Overall', train_metrics['overall_accuracy'], epoch)
         tb_writer.add_scalar('Accuracy/Train_Balanced', train_metrics['balanced_accuracy'], epoch)
         tb_writer.add_scalar('Accuracy/Val_Overall', val_metrics['overall_accuracy'], epoch)
@@ -348,8 +461,21 @@ def main():
         # 日志记录
         memory_usage = get_memory_usage()
         logger.info(f'Epoch [{epoch+1}/{config.EPOCHS}]')
-        logger.info(f'  Train - Loss: {train_loss:.4f}, Overall Acc: {train_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {train_metrics["balanced_accuracy"]:.2f}%')
-        logger.info(f'  Val   - Loss: {val_loss:.4f}, Overall Acc: {val_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {val_metrics["balanced_accuracy"]:.2f}%')
+        
+        # 训练损失记录
+        if use_supcon and 'supcon_loss' in train_metrics:
+            logger.info(f'  Train - Loss: {train_loss:.4f}(CE:{train_metrics["ce_loss"]:.4f} + SupCon:{train_metrics["supcon_loss"]:.4f})')
+            logger.info(f'  Train - Overall Acc: {train_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {train_metrics["balanced_accuracy"]:.2f}%')
+        else:
+            logger.info(f'  Train - Loss: {train_loss:.4f}, Overall Acc: {train_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {train_metrics["balanced_accuracy"]:.2f}%')
+        
+        # 验证损失记录
+        if use_supcon and 'supcon_loss' in val_metrics:
+            logger.info(f'  Val   - Loss: {val_loss:.4f}(CE:{val_metrics["ce_loss"]:.4f} + SupCon:{val_metrics["supcon_loss"]:.4f})')
+            logger.info(f'  Val   - Overall Acc: {val_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {val_metrics["balanced_accuracy"]:.2f}%')
+        else:
+            logger.info(f'  Val   - Loss: {val_loss:.4f}, Overall Acc: {val_metrics["overall_accuracy"]:.2f}%, Balanced Acc: {val_metrics["balanced_accuracy"]:.2f}%')
+            
         logger.info(f'  Val F1 - Macro: {val_metrics["macro_f1"]:.2f}%, Weighted: {val_metrics["weighted_f1"]:.2f}%')
         logger.info(f'  Class Recalls: {[f"{r:.1f}" for r in val_metrics["class_recalls"]]}%')
         logger.info(f'  Class F1s: {[f"{f:.1f}" for f in val_metrics["class_f1s"]]}%')
@@ -403,6 +529,13 @@ if __name__ == '__main__':
     #     '--early_stopping'
     # ]
     
+    # focal + weighted_loss + resnet50 + se + dilation + 余弦退火
+    # sys.argv = [
+    #     'train.py',
+    #     '--loss_type', 'focal',  # 改为focal loss
+    #     '--early_stopping'
+    # ]
+
     # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火 + 26通道
     sys.argv = [
         'train.py',
@@ -410,12 +543,5 @@ if __name__ == '__main__':
         '--weighted_loss',
         '--early_stopping'
     ]
-
-    # focal + weighted_loss + resnet50 + se + dilation + 余弦退火
-    # sys.argv = [
-    #     'train.py',
-    #     '--loss_type', 'focal',  # 改为focal loss
-    #     '--early_stopping'
-    # ]
 
     main()

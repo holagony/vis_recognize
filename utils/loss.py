@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from collections import Counter
 from sklearn.utils.class_weight import compute_class_weight
 from utils import config
@@ -132,3 +133,40 @@ def create_loss_function(labels,
         return FocalLoss(alpha=focal_alpha, gamma=config.FOCAL_GAMMA)
     else:
         return nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=label_smoothing)
+
+
+
+def supcon_loss(features, labels, temperature):
+    '''
+    Supervised Contrastive Loss (InfoNCE-based)
+    features: [batch_size, projection_dim]
+    labels: [batch_size]
+    '''
+    batch_size = features.shape[0]
+    # 归一化特征
+    features = F.normalize(features, dim=1)
+    # 计算相似度矩阵
+    similarity_matrix = torch.matmul(features, features.T) / temperature
+    
+    # 创建标签掩码：同一类的样本为正样本
+    labels = labels.contiguous().view(-1, 1)
+    mask = torch.eq(labels, labels.T).float().to(config.DEVICE)
+    
+    # 去除自比较
+    mask_self = torch.eye(batch_size, dtype=torch.bool).to(config.DEVICE)
+    mask = mask.masked_fill(mask_self, 0)
+    
+    # 计算正样本和负样本的相似度
+    exp_sim = torch.exp(similarity_matrix) * (1 - mask_self.float())
+    pos_sum = torch.sum(exp_sim * mask, dim=1, keepdim=True)
+    neg_sum = torch.sum(exp_sim * (1 - mask), dim=1, keepdim=True)
+    
+    # 避免除零
+    pos_sum = torch.clamp(pos_sum, min=1e-9)
+    neg_sum = torch.clamp(neg_sum, min=1e-9)
+    
+    # 计算损失
+    loss = -torch.log(pos_sum / (pos_sum + neg_sum))
+    loss = loss.mean()
+    
+    return loss
