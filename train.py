@@ -265,9 +265,9 @@ def main():
     # 创建模型
     if config.MODEL_TYPE == 'resnet':
         # model = resnet50_cbam(pretrained=False, in_channels=11)
-        # model = resnet50(in_channels=11, use_se=True, use_dilation=False, dilation_rates=[1, 1, 2, 4])
-        # model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
-        model = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        # model = resnet50(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        # model = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
     elif config.MODEL_TYPE == 'vismfn':
         model_kwargs = config.get_model_kwargs()
         model = VisMFN(**model_kwargs)
@@ -403,20 +403,19 @@ if __name__ == '__main__':
     #     '--early_stopping'
     # ]
     
-    # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火
-    # sys.argv = [
-    #     'train.py',
-    #     '--loss_type', 'crossentropy',  # 改为focal loss
-    #     '--weighted_loss',
-    #     '--early_stopping'
-    # ]
-
-    # focal + weighted_loss + resnet50 + se + dilation + 余弦退火
+    # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火 + 26通道
     sys.argv = [
         'train.py',
-        '--loss_type', 'focal',  # 改为focal loss
+        '--loss_type', 'crossentropy',  # 改为focal loss
         '--weighted_loss',
         '--early_stopping'
     ]
+
+    # focal + weighted_loss + resnet50 + se + dilation + 余弦退火
+    # sys.argv = [
+    #     'train.py',
+    #     '--loss_type', 'focal',  # 改为focal loss
+    #     '--early_stopping'
+    # ]
 
     main()

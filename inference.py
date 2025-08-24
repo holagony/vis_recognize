@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from utils.metric import calculate_metrics
 from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
+from models.resnet.resnet import resnet50, resnet34, resnet18
 from datasets.vis_dataset import VisibilityDataset, InputResize
 from datasets.vis_dataloader import collate_fn_filter_none, worker_init_fn
 from datasets.feature_extraction import feature_extraction_block
@@ -37,7 +38,7 @@ def load_model(model_path):
         model = VisMFN(**model_kwargs)
 
     elif config.MODEL_TYPE == 'resnet':
-        model = resnet50_cbam(pretrained=False, in_channels=26)
+        model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
 
     # 加载模型权重
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:

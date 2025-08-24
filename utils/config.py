@@ -67,10 +67,10 @@ EARLY_STOPPING_PATIENCE = 10  # 早停耐心值，从5增加到15
 EARLY_STOPPING_MIN_DELTA = 0.001  # 最小改进阈值，从0.005降低到0.001
 
 # 损失函数超参数
-FOCAL_GAMMA = 3.0 # 增加gamma值，从2.0到3.0，更关注难分类样本
-FOCAL_ALPHA = 0.25 # 降低alpha值，从1.0到0.25，减少对多数类别的过度关注
+FOCAL_GAMMA = 2 # 增加gamma值，从2.0到3.0，更关注难分类样本
+FOCAL_ALPHA = [0.3, 0.4, 0.8, 1.0, 0.9]
 WEIGHT_MODE = 'balanced'
-SMOOTH_FACTOR = 0.01  # 降低平滑因子，从0.03到0.01，保持权重差异
+SMOOTH_FACTOR = 0.05  # 降低平滑因子，从0.03到0.01，保持权重差异
 LABEL_SMOOTHING = 0.05  # 增加标签平滑，从0.01到0.05，提高泛化能力
 
 # Focal Loss alpha权重说明：

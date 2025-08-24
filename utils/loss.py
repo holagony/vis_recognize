@@ -122,10 +122,13 @@ def create_loss_function(labels,
             alpha_values = np.array(final_weights)
             if alpha_values.max() > alpha_values.min():
                 alpha_values = (alpha_values - alpha_values.min()) / (alpha_values.max() - alpha_values.min())
+            print(alpha_values)
             alpha_tensor = torch.FloatTensor(alpha_values).to(config.DEVICE)
 
     if loss_type.lower() == 'focal':
-        focal_alpha = alpha_tensor if alpha_tensor is not None else config.FOCAL_ALPHA
+        alpha = np.array(config.FOCAL_ALPHA)
+        alpha = torch.FloatTensor(alpha).to(config.DEVICE)
+        focal_alpha = alpha_tensor if alpha_tensor is not None else alpha
         return FocalLoss(alpha=focal_alpha, gamma=config.FOCAL_GAMMA)
     else:
         return nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=label_smoothing)
