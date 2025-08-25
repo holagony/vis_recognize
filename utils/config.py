@@ -27,7 +27,7 @@ USE_AUGMENTATION = False  # 是否启用数据增强
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
-MODEL_TYPE = 'supcon'  # 'vismfn' 或 'resnet' 'supcon'
+MODEL_TYPE = 'supcon'  # resnet / supcon / wuhan
 
 # 训练超参数
 BATCH_SIZE = 64

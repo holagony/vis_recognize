@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from utils.metric import calculate_metrics
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
+from models.wuhan.encoder import Encoder
 from datasets.vis_dataset import VisibilityDataset, InputResize
 from datasets.vis_dataloader import collate_fn_filter_none, worker_init_fn
 from datasets.feature_extraction import feature_extraction_block
@@ -36,6 +37,9 @@ def load_model(model_path):
         # 加载SupCon对比学习模型
         base_encoder = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         model = JointModel(base_encoder, projection_dim=128, num_classes=5)
+
+    elif config.MODEL_TYPE == 'wuhan':
+        model = Encoder(3, 5, use_dropout=False)
 
     # 加载模型权重
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -97,8 +101,12 @@ def evaluate_dataset(model, data_loader):
             labels = labels.to(config.DEVICE)
 
             # 特征提取：使用批处理方式
-            features, num_channels = feature_extraction_block(original_images, augmented_images)
-            features = normalize_feature_26channels(features, depth_ch=1)
+            if config.MODEL_TYPE == 'wuhan':
+                # wuhan模型只用original_images
+                features = original_images
+            else:
+                features, num_channels = feature_extraction_block(original_images, augmented_images)
+                features = normalize_feature_26channels(features, depth_ch=1) # 各通道标准化
 
             # 根据模型类型进行推理
             if config.MODEL_TYPE == 'supcon':

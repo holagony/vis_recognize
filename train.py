@@ -15,6 +15,7 @@ from datasets.vis_dataloader import get_dataloader
 from datasets.feature_extraction import feature_extraction_block
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
+from models.wuhan.encoder import Encoder
 from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
 from utils.loss import create_loss_function, supcon_loss
 from utils.metric import calculate_metrics
@@ -131,8 +132,12 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=
         augmented_images = augmented_images.to(config.DEVICE)
         labels = labels.to(config.DEVICE)
 
-        batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
-        batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
+        if config.MODEL_TYPE == 'wuhan':
+            # wuhan模型只用original_images
+            batch_features = original_images
+        else:
+            batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
+            batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
 
         # 计算loss
         if scaler is not None:
@@ -282,8 +287,12 @@ def validate(model, dataloader, criterion, supcon=False):
             augmented_images = augmented_images.to(config.DEVICE)
             labels = labels.to(config.DEVICE)
 
-            batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
-            batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
+            if config.MODEL_TYPE == 'wuhan':
+                # wuhan模型只用original_images
+                batch_features = original_images
+            else:
+                batch_features, num_channels = feature_extraction_block(original_images, augmented_images)
+                batch_features = normalize_feature_26channels(batch_features, depth_ch=1) # 各通道标准化
             
             # 生成预测结果
             if supcon:
@@ -363,6 +372,9 @@ def main():
         base_encoder = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         # base_encoder = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         model = JointModel(base_encoder, projection_dim=128, num_classes=5)
+    
+    elif config.MODEL_TYPE == 'wuhan':
+        model = Encoder(3, 5, use_dropout=False)
 
     model = model.to(config.DEVICE)
 
