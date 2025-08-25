@@ -13,7 +13,6 @@ from tqdm import tqdm
 from sklearn.metrics import balanced_accuracy_score
 from datasets.vis_dataloader import get_dataloader
 from datasets.feature_extraction import feature_extraction_block
-from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
 from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
@@ -359,10 +358,6 @@ def main():
         # model = resnet50(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         # model = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
-
-    elif config.MODEL_TYPE == 'vismfn':
-        model_kwargs = config.get_model_kwargs()
-        model = VisMFN(**model_kwargs)
 
     elif config.MODEL_TYPE == 'supcon':
         base_encoder = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])

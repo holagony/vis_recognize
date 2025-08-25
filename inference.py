@@ -7,7 +7,6 @@ import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from utils.metric import calculate_metrics
-from models.vismfn.model import VisMFN
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
 from datasets.vis_dataset import VisibilityDataset, InputResize
@@ -30,14 +29,7 @@ def load_model(model_path):
     except:
         checkpoint = torch.load(model_path, map_location=config.DEVICE, weights_only=False)
 
-    if config.MODEL_TYPE == 'vismfn':
-        if isinstance(checkpoint, dict) and 'model_config' in checkpoint:
-            model_kwargs = checkpoint['model_config'].copy()
-        else:
-            model_kwargs = config.get_model_kwargs()
-        model = VisMFN(**model_kwargs)
-
-    elif config.MODEL_TYPE == 'resnet':
+    if config.MODEL_TYPE == 'resnet':
         model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
 
     elif config.MODEL_TYPE == 'supcon':
