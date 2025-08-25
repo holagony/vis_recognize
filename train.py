@@ -547,7 +547,7 @@ if __name__ == '__main__':
     # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火 + 26通道
     sys.argv = [
         'train.py',
-        '--loss_type', 'crossentropy',  # 改为focal loss
+        '--loss_type', 'dice_ce',  # 改为focal loss
         '--weighted_loss',
         '--early_stopping'
     ]

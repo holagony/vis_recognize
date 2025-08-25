@@ -24,14 +24,7 @@ class FocalLoss(nn.Module):
         pt = torch.exp(-ce_loss) # 对于正确类别的概率
         pt = torch.clamp(pt, min=1e-7, max=1.0) # 确保数值稳定性
 
-        # 处理alpha权重：如果是标量，扩展为与类别数量相同的向量
-        if isinstance(self.alpha, (int, float)):
-            # 如果alpha是标量，为所有类别使用相同的alpha值
-            alpha_tensor = torch.full_like(ce_loss, self.alpha)
-        else:
-            # 如果alpha是向量或张量，扩展到与ce_loss相同的形状
-            alpha_tensor = self.alpha[targets].to(inputs.device)
-
+        alpha_tensor = self.alpha[targets].to(inputs.device)
         focal_loss = alpha_tensor * (1 - pt)**self.gamma * ce_loss
 
         if self.size_average:
@@ -82,27 +75,20 @@ class DiceCELoss(nn.Module):
         # 组合损失
         total_loss = self.dice_weight * dice_loss + self.ce_weight * ce_loss
         
-        return total_loss, {
-            'dice_loss': dice_loss.item(),
-            'ce_loss': ce_loss.item(),
-            'total_loss': total_loss.item()
-        }
+        return total_loss
     
     def _dice_loss(self, inputs, targets):
         """计算Dice Loss"""
         # 应用softmax获取概率
         probs = torch.softmax(inputs, dim=1)
         
-        # 处理不同输入形状
-        if probs.dim() == 4:  # [N, C, H, W]
-            # 重塑为 [N, C, H*W]
-            probs = probs.view(probs.size(0), probs.size(1), -1)
-            # 创建one-hot编码的目标
-            targets_onehot = F.one_hot(targets, num_classes=probs.size(1)).float()
-            targets_onehot = targets_onehot.view(targets_onehot.size(0), targets_onehot.size(1), -1)
-        else:  # [N, C]
-            # 创建one-hot编码的目标
-            targets_onehot = F.one_hot(targets, num_classes=probs.size(1)).float()
+        # 对于分类任务，直接使用概率和目标
+        # 创建one-hot编码的目标
+        targets_onehot = F.one_hot(targets, num_classes=probs.size(1)).float()
+        # 对于分类任务，我们计算每个类别的Dice系数
+        # 将形状调整为 [N, C, 1] 以便统一处理
+        probs = probs.unsqueeze(-1)  # [N, C] -> [N, C, 1]
+        targets_onehot = targets_onehot.unsqueeze(-1)  # [N, C] -> [N, C, 1]
         
         # 计算Dice系数
         intersection = (probs * targets_onehot).sum(dim=2)
@@ -198,16 +184,23 @@ def create_loss_function(labels,
         # 为focal loss计算每个类别的alpha值
         if loss_type.lower() == 'focal':
             alpha_values = np.array(final_weights)
+            
+            # 使用Min-Max归一化到[0.1, 1.0]范围，保持相对比例
             if alpha_values.max() > alpha_values.min():
-                alpha_values = (alpha_values - alpha_values.min()) / (alpha_values.max() - alpha_values.min())
-            print(alpha_values)
+                alpha_values = 0.1 + 0.9 * (alpha_values - alpha_values.min()) / (alpha_values.max() - alpha_values.min())
+            else:
+                alpha_values = np.full_like(alpha_values, 0.5)
+            
             alpha_tensor = torch.FloatTensor(alpha_values).to(config.DEVICE)
 
     # 根据损失类型返回相应的损失函数
     if loss_type.lower() == 'focal':
-        alpha = np.array(config.FOCAL_ALPHA)
-        alpha = torch.FloatTensor(alpha).to(config.DEVICE)
-        focal_alpha = alpha_tensor if alpha_tensor is not None else alpha
+        # 优先使用计算出的alpha_tensor，如果没有则使用配置的FOCAL_ALPHA
+        if alpha_tensor is not None:
+            focal_alpha = alpha_tensor
+        else:
+            alpha = np.array(config.FOCAL_ALPHA)
+            focal_alpha = torch.FloatTensor(alpha).to(config.DEVICE)
         return FocalLoss(alpha=focal_alpha, gamma=config.FOCAL_GAMMA)
     
     elif loss_type.lower() == 'dice_ce':
@@ -217,8 +210,7 @@ def create_loss_function(labels,
             dice_smooth=config.DICE_SMOOTH,
             ce_label_smoothing=label_smoothing,
             use_class_weights=use_weights,
-            class_weights=weights_tensor
-        )
+            class_weights=weights_tensor)
     
     else:  # crossentropy (默认)
         return nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=label_smoothing)

@@ -18,7 +18,7 @@ MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 INFERENCE_RESULT_DIR = os.path.join(RESULT_DIR, 'inference')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (256, 256) # (H, W)
+TARGET_INPUT_SIZE = (224, 224) # (H, W)
 NORM_MEAN = [0.485, 0.456, 0.406]
 NORM_STD = [0.229, 0.224, 0.225]
 DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
@@ -27,7 +27,7 @@ USE_AUGMENTATION = False  # 是否启用数据增强
 # 模型配置
 USE_SIMPLE_DEPTH = True  # True: 使用轻量级深度分支, False: 使用DPT分支
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
-MODEL_TYPE = 'supcon'  # resnet / supcon / wuhan
+MODEL_TYPE = 'wuhan'  # resnet / supcon / wuhan
 
 # 训练超参数
 BATCH_SIZE = 64

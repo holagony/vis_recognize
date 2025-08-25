@@ -102,7 +102,8 @@ def evaluate_dataset(model, data_loader):
 
             # 特征提取：使用批处理方式
             if config.MODEL_TYPE == 'wuhan':
-                # wuhan模型只用original_images
+                # wuhan模型只用original_images，原模型不需要标准化
+                # original_images = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(original_images)
                 features = original_images
             else:
                 features, num_channels = feature_extraction_block(original_images, augmented_images)
@@ -127,14 +128,14 @@ def evaluate_dataset(model, data_loader):
     return np.array(all_predictions), np.array(all_labels), np.array(all_probabilities)
 
 
-def run_dataset_evaluation(model_path):
+def run_dataset_evaluation(model_path, data_path):
     '''
     对数据集进行完整评估
     '''
     model = load_model(model_path)  # 加载模型
 
     # 创建数据集和数据加载器
-    test_paths, test_labels = load_test_images(config.TEST_DATA_ROOT)  # 加载测试数据
+    test_paths, test_labels = load_test_images(data_path)  # 加载测试数据
     test_dataset = VisibilityDataset(test_paths, test_labels, is_train=False, augment=False)
     test_loader = DataLoader(test_dataset, 
                              batch_size=config.BATCH_SIZE, 
@@ -247,22 +248,14 @@ def run_single_image_inference(image_path, model_path):
 
 if __name__ == "__main__":
     model_path = r'C:/Users/mjynj/Desktop/vis_recognize/results/models/vis_best.pth'
+    data_path = config.TEST_DATA_ROOT
     
+    # model_path = r'C:/Users/mjynj/Desktop/Encoder_30_test_loss-0.5486_test_dice-0.8457.pt'
+    # data_path = r'C:\Users\mjynj\Desktop\vis\app\data\highway_validate_data'
+
     # 检查模型类型
     print(f"当前模型类型: {config.MODEL_TYPE}")
-
-    # 加载测试数据用于特征分析
-    test_paths, test_labels = load_test_images(config.TEST_DATA_ROOT)
-    test_dataset = VisibilityDataset(test_paths, test_labels, is_train=False, augment=False)
-    test_loader = DataLoader(test_dataset, 
-                                batch_size=config.BATCH_SIZE, 
-                                shuffle=False, 
-                                num_workers=0, 
-                                pin_memory=True, 
-                                collate_fn=collate_fn_filter_none, 
-                                worker_init_fn=worker_init_fn)
-
-    info, report = run_dataset_evaluation(model_path)
+    info, report = run_dataset_evaluation(model_path, data_path)
 
     print(info)
     print('---------------------------------')
