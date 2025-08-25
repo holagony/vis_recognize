@@ -456,7 +456,7 @@ def main():
         # 早停
         if args.early_stopping:
             # 使用少数类别的平均召回率作为早停指标，而不是整体平衡准确率
-            minority_classes = [2, 3]  # 类别2和3是少数类别
+            minority_classes = [2, 3, 4]  # 类别2和3是少数类别
             minority_recalls = [val_metrics['class_recalls'][i] for i in minority_classes]
             minority_avg_recall = np.mean(minority_recalls)
             
