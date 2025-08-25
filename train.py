@@ -16,7 +16,7 @@ from datasets.feature_extraction import feature_extraction_block
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
 from models.wuhan.encoder import Encoder
-from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels
+from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_26channels, create_optimizer, get_lr_scheduler
 from utils.loss import create_loss_function, supcon_loss
 from utils.metric import calculate_metrics
 from utils import config
@@ -41,62 +41,6 @@ class EarlyStopping:
         else:
             self.counter += 1
             return self.counter >= self.patience
-
-
-def get_lr_scheduler(optimizer, warmup_epochs, total_epochs, eta_min):
-    '''
-    支持多种学习率调度策略
-    '''
-    strategy = getattr(config, 'COSINE_STRATEGY', 'standard')
-    
-    if strategy == 'restart':
-        # 余弦重启策略：每T轮重启一次
-        restart_t = getattr(config, 'COSINE_RESTART_T', 10)
-        restart_mult = getattr(config, 'COSINE_RESTART_MULT', 2.0)
-        
-        def lr_lambda(epoch):
-            if epoch < warmup_epochs:
-                # 预热阶段：线性增长
-                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
-            else:
-                # 余弦重启阶段
-                cos_epoch = epoch - warmup_epochs
-                restart_epoch = cos_epoch % restart_t
-                restart_count = cos_epoch // restart_t
-                current_lr = eta_min + (1 - eta_min) * 0.5 * (1 + np.cos(np.pi * restart_epoch / restart_t))
-                # 每次重启后学习率乘以倍数
-                return current_lr * (restart_mult ** restart_count)
-    
-    elif strategy == 'warm_restart':
-        # 热重启策略：重启时学习率逐渐降低
-        restart_t = getattr(config, 'COSINE_RESTART_T', 10)
-        
-        def lr_lambda(epoch):
-            if epoch < warmup_epochs:
-                # 预热阶段：线性增长
-                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
-            else:
-                # 热重启阶段
-                cos_epoch = epoch - warmup_epochs
-                restart_epoch = cos_epoch % restart_t
-                restart_count = cos_epoch // restart_t
-                # 每次重启后最小学习率逐渐降低
-                current_eta_min = eta_min * (0.9 ** restart_count)
-                return current_eta_min + (1 - current_eta_min) * 0.5 * (1 + np.cos(np.pi * restart_epoch / restart_t))
-    
-    else:
-        # 标准余弦退火策略
-        def lr_lambda(epoch):
-            if epoch < warmup_epochs:
-                # 预热阶段：线性增长
-                return config.WARMUP_FACTOR + (1.0 - config.WARMUP_FACTOR) * epoch / warmup_epochs
-            else:
-                # 余弦退火阶段
-                cos_epoch = epoch - warmup_epochs
-                cos_total = total_epochs - warmup_epochs
-                return eta_min + (1 - eta_min) * 0.5 * (1 + np.cos(np.pi * cos_epoch / cos_total))
-    
-    return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps=1, epoch=None, scaler=None, supcon=False):
@@ -344,6 +288,7 @@ def main():
     parser.add_argument('--weighted_sampler', action='store_true', help='是否使用加权采样器') # weighted_sampler/weighted_loss 最好二选一
     parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重') # focal alpha
     parser.add_argument('--early_stopping', action='store_true', help='是否启用早停')
+    parser.add_argument('--optimizer', type=str, choices=['adamw', 'sgd'], default=None, help='选择优化器类型 (adamw/sgd)')
     parser.add_argument('--seed', type=int, default=6666)
     args = parser.parse_args()
 
@@ -353,11 +298,17 @@ def main():
     logger = setup_logging(config.MODEL_OUTPUT_DIR)
     tb_writer = SummaryWriter(log_dir=os.path.join(config.MODEL_OUTPUT_DIR, 'tensorboard'))
 
+    # 如果命令行指定了优化器，则覆盖配置文件
+    if args.optimizer:
+        config.OPTIMIZER_TYPE = args.optimizer
+        logger.info(f"命令行指定优化器: {args.optimizer}")
+
     logger.info(f"随机种子: {args.seed}")
     logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
     logger.info(f"加权策略: 采样器={args.weighted_sampler}, 类别权重={args.weighted_loss}")
     logger.info(f"损失函数: {args.loss_type}")
     logger.info(f"模型类型: {config.MODEL_TYPE}")
+    logger.info(f"优化器类型: {config.OPTIMIZER_TYPE}")
 
     # 加载数据
     train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=args.weighted_sampler)
@@ -389,12 +340,10 @@ def main():
                                      label_smoothing=config.LABEL_SMOOTHING)
     
     # 优化器参数
-    # optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
-    optimizer = optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY, betas=config.BETAS, eps=config.EPS)
+    optimizer = create_optimizer(model, optimizer_type=config.OPTIMIZER_TYPE)
     
     # 学习率
     scheduler = get_lr_scheduler(optimizer, config.WARMUP_EPOCHS, config.EPOCHS, config.ETA_MIN) # warmup + 余弦退火
-    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5)
 
     # 混合精度训练
     try:
@@ -545,9 +494,18 @@ if __name__ == '__main__':
     # ]
 
     # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火 + 26通道
+    # sys.argv = [
+    #     'train.py',
+    #     '--loss_type', 'dice_ce',  # 改为focal loss
+    #     '--weighted_loss',
+    #     '--early_stopping'
+    # ]
+
+    # 使用SGD优化器的示例
     sys.argv = [
         'train.py',
-        '--loss_type', 'dice_ce',  # 改为focal loss
+        '--optimizer', 'sgd',
+        '--loss_type', 'crossentropy', 
         '--weighted_loss',
         '--early_stopping'
     ]
