@@ -106,7 +106,7 @@ def create_optimizer(model, optimizer_type='adamw'):
                               momentum=config.SGD_MOMENTUM, 
                               weight_decay=config.SGD_WEIGHT_DECAY, 
                               nesterov=config.SGD_NESTEROV)
-        print(f"使用SGD优化器 - 学习率: {config.LEARNING_RATE}, 动量: {config.SGD_MOMENTUM}, "
+        print(f"使用SGD优化器 - 学习率: {config.LEARNING_RATE_SGD}, 动量: {config.SGD_MOMENTUM}, "
               f"Nesterov: {config.SGD_NESTEROV}, 权重衰减: {config.SGD_WEIGHT_DECAY}")
     else:
         optimizer = optim.AdamW(model.parameters(), 
@@ -114,7 +114,7 @@ def create_optimizer(model, optimizer_type='adamw'):
                                 weight_decay=config.WEIGHT_DECAY, 
                                 betas=config.BETAS, 
                                 eps=config.EPS)
-        print(f"使用AdamW优化器 - 学习率: {config.LEARNING_RATE}, 权重衰减: {config.WEIGHT_DECAY}, "
+        print(f"使用AdamW优化器 - 学习率: {config.LEARNING_RATE_ADAM}, 权重衰减: {config.WEIGHT_DECAY}, "
               f"Betas: {config.BETAS}, Eps: {config.EPS}")
 
     return optimizer
