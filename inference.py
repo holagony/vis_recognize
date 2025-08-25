@@ -35,7 +35,7 @@ def load_model(model_path):
 
     elif config.MODEL_TYPE == 'supcon':
         # 加载SupCon对比学习模型
-        base_encoder = resnet34(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        base_encoder = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
         model = JointModel(base_encoder, projection_dim=128, num_classes=5)
 
     elif config.MODEL_TYPE == 'wuhan':

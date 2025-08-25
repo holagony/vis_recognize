@@ -357,6 +357,7 @@ def main():
     logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
     logger.info(f"加权策略: 采样器={args.weighted_sampler}, 类别权重={args.weighted_loss}")
     logger.info(f"损失函数: {args.loss_type}")
+    logger.info(f"模型类型: {config.MODEL_TYPE}")
 
     # 加载数据
     train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=args.weighted_sampler)
