@@ -340,7 +340,7 @@ def save_checkpoint(model, optimizer, epoch, accuracy, best_accuracy, save_path)
 def main():
     parser = argparse.ArgumentParser(description='Vis Training')
     parser.add_argument('--resume', type=str, help='恢复训练的检查点路径')
-    parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal'], default='crossentropy')
+    parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal', 'dice_ce'], default='crossentropy')
     parser.add_argument('--weighted_sampler', action='store_true', help='是否使用加权采样器') # weighted_sampler/weighted_loss 最好二选一
     parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重') # focal alpha
     parser.add_argument('--early_stopping', action='store_true', help='是否启用早停')
