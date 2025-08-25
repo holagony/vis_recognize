@@ -73,6 +73,11 @@ WEIGHT_MODE = 'balanced'
 SMOOTH_FACTOR = 0.05  # 降低平滑因子，从0.03到0.01，保持权重差异
 LABEL_SMOOTHING = 0.05  # 增加标签平滑，从0.01到0.05，提高泛化能力
 
+# Dice Loss 组合损失配置参数
+DICE_SMOOTH = 1e-6  # Dice Loss平滑因子
+DICE_WEIGHT = 0.5   # Dice Loss权重
+CE_WEIGHT = 0.5     # Cross Entropy权重
+
 # Focal Loss alpha权重说明：
 # - FOCAL_ALPHA = None: 自动计算类别特定权重（推荐）
 # - FOCAL_ALPHA = [0.1, 0.3, 0.8, 1.0, 0.5]: 手动设置每个类别的权重

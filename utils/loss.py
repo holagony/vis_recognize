@@ -40,6 +40,83 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
 
 
+class DiceCELoss(nn.Module):
+    """
+    组合损失函数：Dice Loss + Cross Entropy Loss
+    结合了Dice Loss的边界优化和Cross Entropy的分类能力
+    """
+    
+    def __init__(self, 
+                 dice_weight=0.5,
+                 ce_weight=0.5,
+                 dice_smooth=1e-6,
+                 ce_label_smoothing=0.0,
+                 use_class_weights=False,
+                 class_weights=None):
+        """
+        Args:
+            dice_weight: Dice Loss的权重
+            ce_weight: Cross Entropy Loss的权重
+            dice_smooth: Dice Loss的平滑因子
+            ce_label_smoothing: Cross Entropy的标签平滑
+            use_class_weights: 是否在Cross Entropy中使用类别权重
+            class_weights: 类别权重张量
+        """
+        super(DiceCELoss, self).__init__()
+        self.dice_weight = dice_weight
+        self.ce_weight = ce_weight
+        self.dice_smooth = dice_smooth
+        self.ce_loss = nn.CrossEntropyLoss(
+            weight=class_weights if use_class_weights else None,
+            label_smoothing=ce_label_smoothing,
+            reduction='mean'
+        )
+    
+    def forward(self, inputs, targets):
+        # 计算Cross Entropy Loss
+        ce_loss = self.ce_loss(inputs, targets)
+        
+        # 计算Dice Loss
+        dice_loss = self._dice_loss(inputs, targets)
+        
+        # 组合损失
+        total_loss = self.dice_weight * dice_loss + self.ce_weight * ce_loss
+        
+        return total_loss, {
+            'dice_loss': dice_loss.item(),
+            'ce_loss': ce_loss.item(),
+            'total_loss': total_loss.item()
+        }
+    
+    def _dice_loss(self, inputs, targets):
+        """计算Dice Loss"""
+        # 应用softmax获取概率
+        probs = torch.softmax(inputs, dim=1)
+        
+        # 处理不同输入形状
+        if probs.dim() == 4:  # [N, C, H, W]
+            # 重塑为 [N, C, H*W]
+            probs = probs.view(probs.size(0), probs.size(1), -1)
+            # 创建one-hot编码的目标
+            targets_onehot = F.one_hot(targets, num_classes=probs.size(1)).float()
+            targets_onehot = targets_onehot.view(targets_onehot.size(0), targets_onehot.size(1), -1)
+        else:  # [N, C]
+            # 创建one-hot编码的目标
+            targets_onehot = F.one_hot(targets, num_classes=probs.size(1)).float()
+        
+        # 计算Dice系数
+        intersection = (probs * targets_onehot).sum(dim=2)
+        denominator = probs.sum(dim=2) + targets_onehot.sum(dim=2)
+        
+        # 计算Dice系数
+        dice = (2.0 * intersection + self.dice_smooth) / (denominator + self.dice_smooth)
+        
+        # 计算Dice Loss
+        dice_loss = 1 - dice
+        
+        return dice_loss.mean()
+
+
 def create_loss_function(labels, 
                          loss_type='crossentropy', 
                          use_weights=False, 
@@ -48,9 +125,9 @@ def create_loss_function(labels,
                          smooth_factor=0.05, 
                          label_smoothing=0.05):
     '''
-    创建损失函数 - 支持CrossEntropyLoss和FocalLoss二选一
+    创建损失函数 - 支持CrossEntropyLoss、FocalLoss和DiceCELoss
     labels: 训练标签
-    loss_type: 损失函数类型 ('crossentropy' 或 'focal')
+    loss_type: 损失函数类型 ('crossentropy', 'focal', 'dice_ce')
     use_weights: 是否在损失函数中使用类别权重
     weight_mode: 权重(alpha)的计算模式 ('balanced', 'sqrt_balanced')
     weight_smoothing: 是否对计算出的类别权重进行平滑处理
@@ -126,14 +203,25 @@ def create_loss_function(labels,
             print(alpha_values)
             alpha_tensor = torch.FloatTensor(alpha_values).to(config.DEVICE)
 
+    # 根据损失类型返回相应的损失函数
     if loss_type.lower() == 'focal':
         alpha = np.array(config.FOCAL_ALPHA)
         alpha = torch.FloatTensor(alpha).to(config.DEVICE)
         focal_alpha = alpha_tensor if alpha_tensor is not None else alpha
         return FocalLoss(alpha=focal_alpha, gamma=config.FOCAL_GAMMA)
-    else:
+    
+    elif loss_type.lower() == 'dice_ce':
+        return DiceCELoss(
+            dice_weight=config.DICE_WEIGHT,
+            ce_weight=config.CE_WEIGHT,
+            dice_smooth=config.DICE_SMOOTH,
+            ce_label_smoothing=label_smoothing,
+            use_class_weights=use_weights,
+            class_weights=weights_tensor
+        )
+    
+    else:  # crossentropy (默认)
         return nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=label_smoothing)
-
 
 
 def supcon_loss(features, labels, temperature):
