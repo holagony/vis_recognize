@@ -31,7 +31,7 @@ def load_model(model_path):
         checkpoint = torch.load(model_path, map_location=config.DEVICE, weights_only=False)
 
     if config.MODEL_TYPE == 'resnet':
-        model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2])
+        model = resnet18(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2], use_psa=False)
 
     elif config.MODEL_TYPE == 'supcon':
         # 加载SupCon对比学习模型
@@ -247,7 +247,7 @@ def run_single_image_inference(image_path, model_path):
 
 
 if __name__ == "__main__":
-    model_path = r'C:/Users/mjynj/Desktop/vis_recognize/results/models/vis_best.pth'
+    model_path = r'C:/Users/mjynj/Desktop/vis_best.pth'
     data_path = config.TEST_DATA_ROOT
     
     # model_path = r'C:/Users/mjynj/Desktop/Encoder_30_test_loss-0.5486_test_dice-0.8457.pt'
