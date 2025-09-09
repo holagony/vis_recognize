@@ -27,9 +27,9 @@ SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 
 # ==================== 训练基础配置 ====================
 # 基本训练参数
-BATCH_SIZE = 64
+BATCH_SIZE = 96
 GRADIENT_ACCUMULATION_STEPS = 1  # 梯度累积
-EPOCHS = 60
+EPOCHS = 80
 NUM_CLASSES = 5
 GRADIENT_CLIP_NORM = 1.0  # 梯度裁剪
 
@@ -70,8 +70,8 @@ COSINE_RESTART_MULT = 2.0  # 重启后学习率倍数
 
 # SGD学习率调度
 SGD_USE_STEP_LR = True  # StepLR调度器
-SGD_STEP_SIZE = 10  # StepLR的步长
-SGD_GAMMA = 0.5  # StepLR的学习率衰减因子
+SGD_STEP_SIZE = 5  # StepLR的步长
+SGD_GAMMA = 0.7  # StepLR的学习率衰减因子
 
 # ==================== 损失函数配置 ====================
 # Focal Loss 参数
@@ -85,13 +85,13 @@ LABEL_SMOOTHING = 0.05  # 标签平滑
 
 # SupCon loss
 SUPCON_TEMPERATURE = 0.07  # 温度参数
-SUPCON_WEIGHT = 0.5
-CE_WEIGHT = 0.5
+SUPCON_WEIGHT = 1 # 0.6
+CE_WEIGHT = 0.5 # 0.4 / 0.5
 
 # Dice Loss 组合损失配置参数
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子
 DICE_WEIGHT = 0.5  # Dice Loss权重
-CE_WEIGHT = 0.5  # Cross Entropy权重
+# CE_WEIGHT = 0.5  # Cross Entropy权重
 
 # ==================== 特征提取配置 ====================
 # 传输通道参数
