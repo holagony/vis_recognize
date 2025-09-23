@@ -102,16 +102,31 @@ def worker_init_fn():
     random.seed(worker_seed)
 
 
-def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted_sampler=False):
+def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted_sampler=False, 
+                   train_resize_mode='random_crop', val_resize_mode='center_crop'):
     '''
-    获取训练和验证数据加载器
     weighted_sampler：使用加权采样器
+    train_resize_mode：训练时的图像处理模式，默认使用random_crop
+    val_resize_mode：验证时的图像处理模式，默认使用center_crop
     '''
+    # 设置默认的resize模式
+    if train_resize_mode is None:
+        train_resize_mode = 'random_crop' if hasattr(config, 'RESIZE_MODE') and config.RESIZE_MODE == 'random_crop' else config.RESIZE_MODE
+    if val_resize_mode is None:
+        val_resize_mode = 'center_crop'  # 验证时总是使用center_crop保证一致性
+    
+    print(f"数据加载配置：")
+    print(f"  - 目标尺寸: {config.TARGET_INPUT_SIZE}")
+    print(f"  - 训练模式: {train_resize_mode}")
+    print(f"  - 验证模式: {val_resize_mode}")
+    print(f"  - 数据增强: {augment}")
+    print(f"  - 加权采样: {weighted_sampler}")
+    
     # 根据现有结构，获取图像和对应路径，构建dataset
     train_img_paths, train_labels = img_dataloader(train_dir)
     val_img_paths, val_labels = img_dataloader(val_dir)
-    train_dataset = VisibilityDataset(train_img_paths, train_labels, augment, is_train=True)
-    val_dataset = VisibilityDataset(val_img_paths, val_labels, False, is_train=False)
+    train_dataset = VisibilityDataset(train_img_paths, train_labels, augment, is_train=True, resize_mode=train_resize_mode)
+    val_dataset = VisibilityDataset(val_img_paths, val_labels, False, is_train=False, resize_mode=val_resize_mode)
 
     # 创建采样器
     if weighted_sampler:

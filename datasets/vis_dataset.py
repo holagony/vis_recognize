@@ -1,3 +1,4 @@
+import torch
 import torchvision.transforms as T
 from torch.utils.data import Dataset
 from torchvision.transforms import functional as TF
@@ -8,20 +9,25 @@ from datasets.vis_augmentation import VisAugmentation
 
 class InputResize:
     '''
-    自适应调整图像尺寸，支持任意输入尺寸，内部自动处理到指定分辨率
+    高清图像自适应处理，针对1280x720等高分辨率图像优化
     
-    支持两种模式：
-    1. 保持长宽比 + 填充（默认）：图像保持原始长宽比，用黑色填充到目标尺寸
-    2. 直接resize：直接缩放到目标尺寸，可能会改变长宽比
+    支持四种模式：
+    1. 直接resize：直接缩放到目标尺寸（可能改变长宽比）
+    2. 保持长宽比 + 填充：图像保持原始长宽比，用黑色填充到目标尺寸
+    3. 中心裁剪：先缩放到合适尺寸，然后从中心裁剪到目标尺寸
+    4. 随机裁剪：先缩放到合适尺寸，然后随机裁剪到目标尺寸（训练时推荐）
     
     参数:
         target_size: 目标尺寸，可以是int或tuple(H, W)
         interpolation: 插值方法
-        direct_resize: 是否使用直接resize，False为保持长宽比模式（默认）
+        resize_mode: 'direct', 'pad', 'center_crop', 'random_crop'
+        is_train: 是否为训练模式（影响随机裁剪的行为）
     '''
-    def __init__(self, target_size, interpolation=T.InterpolationMode.BILINEAR, direct_resize=True):
+    def __init__(self, target_size, interpolation=T.InterpolationMode.BILINEAR, 
+                 resize_mode='center_crop', is_train=True):
         self.interpolation = interpolation
-        self.direct_resize = direct_resize
+        self.resize_mode = resize_mode
+        self.is_train = is_train
         if isinstance(target_size, int):
             self.target_h, self.target_w = target_size, target_size
         else:
@@ -31,18 +37,18 @@ class InputResize:
         original_w, original_h = img_pil.size  # PIL返回(width, height)
         original_size = (original_h, original_w)
         
-        if self.direct_resize:
+        if self.resize_mode == 'direct':
+            # 直接resize（原有方法）
             img_resized = TF.resize(img_pil, (self.target_h, self.target_w), interpolation=self.interpolation)
             img_resized.original_size = original_size
             return img_resized
-        else:
-            # 保持长宽比模式：缩放 + 填充
-            # 计算缩放比例，保持长宽比
+            
+        elif self.resize_mode == 'pad':
+            # 保持长宽比 + 填充（原有方法）
             scale_h = self.target_h / original_h
             scale_w = self.target_w / original_w
-            scale = min(scale_h, scale_w)  # 使用较小的缩放比例保持长宽比
+            scale = min(scale_h, scale_w)
     
-            # 缩放 + 再填充到目标尺寸
             new_h = int(original_h * scale)
             new_w = int(original_w * scale)
             img_resized = TF.resize(img_pil, (new_h, new_w), interpolation=self.interpolation)
@@ -52,28 +58,89 @@ class InputResize:
             pad_bottom = pad_h - pad_top
             pad_left = pad_w // 2
             pad_right = pad_w - pad_left
-            img_padded = TF.pad(img_resized, [pad_left, pad_top, pad_right, pad_bottom], fill=0) # 黑色填充
+            img_padded = TF.pad(img_resized, [pad_left, pad_top, pad_right, pad_bottom], fill=0)
             img_padded.original_size = original_size
-            
             return img_padded
+            
+        elif self.resize_mode == 'center_crop':
+            # 中心裁剪：适合高清图像，保留图像中心区域
+            scale_h = self.target_h / original_h
+            scale_w = self.target_w / original_w
+            scale = max(scale_h, scale_w)  # 使用较大的缩放比例确保覆盖目标尺寸
+            
+            # 先缩放到能够覆盖目标尺寸的最小尺寸
+            new_h = int(original_h * scale)
+            new_w = int(original_w * scale)
+            img_resized = TF.resize(img_pil, (new_h, new_w), interpolation=self.interpolation)
+            
+            # 从中心裁剪到目标尺寸
+            img_cropped = TF.center_crop(img_resized, (self.target_h, self.target_w))
+            img_cropped.original_size = original_size
+            return img_cropped
+            
+        elif self.resize_mode == 'random_crop':
+            # 随机裁剪：训练时增加数据多样性
+            scale_h = self.target_h / original_h
+            scale_w = self.target_w / original_w
+            scale = max(scale_h, scale_w)
+            
+            # 先缩放到能够覆盖目标尺寸的最小尺寸
+            new_h = int(original_h * scale)
+            new_w = int(original_w * scale)
+            img_resized = TF.resize(img_pil, (new_h, new_w), interpolation=self.interpolation)
+            
+            if self.is_train:
+                # 训练时使用随机裁剪
+                if new_h > self.target_h or new_w > self.target_w:
+                    # 计算可裁剪的范围
+                    max_top = max(0, new_h - self.target_h)
+                    max_left = max(0, new_w - self.target_w)
+                    top = torch.randint(0, max_top + 1, (1,)).item() if max_top > 0 else 0
+                    left = torch.randint(0, max_left + 1, (1,)).item() if max_left > 0 else 0
+                    img_cropped = TF.crop(img_resized, top, left, self.target_h, self.target_w)
+                else:
+                    img_cropped = img_resized
+            else:
+                # 验证/测试时使用中心裁剪保证一致性
+                img_cropped = TF.center_crop(img_resized, (self.target_h, self.target_w))
+            
+            img_cropped.original_size = original_size
+            return img_cropped
+        
+        else:
+            raise ValueError(f"Unsupported resize_mode: {self.resize_mode}")
 
 
 class VisibilityDataset(Dataset):
     '''
-    高速公路能见度数据集处理，返回原始RGB图像和标签。
+    高速公路能见度数据集处理，针对高清图像（1280x720）优化。
     
     image_paths: 图像路径列表
     labels: 标签列表
     augment: 是否使用数据增强
     is_train: 是否为训练模式（影响数据增强的应用）
+    resize_mode: 图像处理模式 ('direct', 'pad', 'center_crop', 'random_crop')
     '''
-    def __init__(self, image_paths, labels, augment, is_train=True):
+    def __init__(self, image_paths, labels, augment, is_train=True, resize_mode='center_crop'):
         self.image_paths = image_paths
         self.labels = labels
         self.is_train = is_train
         self.augment = augment
         self.target_size = config.TARGET_INPUT_SIZE
-        self.size_transform = InputResize(self.target_size, direct_resize=config.DIRECT_RESIZE)
+        
+        # 根据配置选择resize模式，优先使用传入的参数
+        if hasattr(config, 'RESIZE_MODE'):
+            self.resize_mode = config.RESIZE_MODE
+        else:
+            self.resize_mode = resize_mode
+            
+        # 为高清图像推荐使用center_crop或random_crop
+        if self.is_train and self.resize_mode == 'random_crop':
+            print(f"训练模式：使用随机裁剪 ({self.resize_mode})，增加数据多样性")
+        elif not self.is_train and self.resize_mode in ['center_crop', 'random_crop']:
+            print(f"验证/测试模式：使用中心裁剪保证一致性")
+            
+        self.size_transform = InputResize(self.target_size, resize_mode=self.resize_mode, is_train=self.is_train)
         self.flip_transform = T.RandomHorizontalFlip(p=0.5)
         self.tensor_transform = T.ToTensor()
 

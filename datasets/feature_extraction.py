@@ -5,11 +5,15 @@ from model_hub.dptransformer.dpt.models import DPTDepthModel
 from torchvision.models import mobilenet_v2
 from torchvision.transforms import functional as TF
 from utils import config
+import cv2
+import numpy as np
+from PIL import Image
+import os
 
 '''
 四个分支：
 1. 深度估计分支，输出(1 or 16, H, W) - 1/16通道深度图，数值范围[-1, 1]
-2. 细节特征提取分支，输出(3, H, W) - 三通道细节特征，数值范围[-1, 1]
+2. 细节特征提取分支，输出(3, H, W) - 三通道细节特征，数值范围[0, 1]
 3. 光谱特征提取分支，输出(3, H, W) - 三通道LAB特征，L[0,1], A[-0.5,0.5], B[-0.5,0.5]
 4. 传输矩阵估计分支，输出(1, H, W) - 单通道传输矩阵，数值范围[0, 1]
 
@@ -32,11 +36,11 @@ class DPTSceneDepthBranch(nn.Module):
         self.device = device
 
         if dpt_model_type == "dpt_large":
-            dpt_weight_path = "dpt/weights/dpt_large-midas-2f21e586.pt"
+            dpt_weight_path = "dptransformer/weights/dpt_large-midas-2f21e586.pt"
             backbone = "vitl16_384"
 
         elif dpt_model_type == "dpt_hybrid":
-            dpt_weight_path = "dpt/weights/dpt_hybrid-midas-501f0c75.pt"
+            dpt_weight_path = "dptransformer/weights/dpt_hybrid-midas-501f0c75.pt"
             backbone = "vitb_rn50_384"
 
         # 创建DPT模型
@@ -180,64 +184,56 @@ class SimpleSceneDepthBranch(nn.Module):
 #------------------------------细节特征提取分支--------------------------------
 class DetailBranch(nn.Module):
     '''
-    使用导向滤波提取图像细节特征
+    使用Sobel算子提取图像细节特征
     输入：RGB图像，形状为(B, 3, H, W)
     输出：细节层特征图，形状为(B, 3, H, W)
     '''
 
-    def __init__(self, guided_radius, guided_eps):
+    def __init__(self):
         super().__init__()
-        self.radius = guided_radius
-        self.eps = guided_eps
-
-    def guided_filter(self, guide_img, input_img, radius=5, epsilon=1e-3):
-        '''
-        导向滤波，对transmission_map使用，可优化结果
-        guide_img使用原图(B, 3, H, W)
-        input_img可以是灰度图或RGB图(B, 1, H, W) 或 (B, 3, H, W)
-        '''
-        B, C, H, W = guide_img.shape
-
-
-        input_img = input_img.unsqueeze(1)  # (B, H, W) -> (B, 1, H, W)
-        input_img = input_img.expand(B, C, H, W)  # (B, 1, H, W) -> (B, C, H, W)
-
-        # 计算均值 使用平均池化实现box_filter的效果
-        mean_guide = F.avg_pool2d(guide_img, kernel_size=2 * radius + 1, stride=1, padding=radius)  # (B, 3, H, W)
-        mean_input = F.avg_pool2d(input_img, kernel_size=2 * radius + 1, stride=1, padding=radius)  # (B, C, H, W)
-        mean_guide_input = F.avg_pool2d((guide_img * input_img), kernel_size=2 * radius + 1, stride=1, padding=radius)  # (B, C, H, W)
-        mean_guide_sq = F.avg_pool2d((guide_img * guide_img), kernel_size=2 * radius + 1, stride=1, padding=radius)  # (B, 3, H, W)
-
-        # 计算协方差和方差
-        cov_guide_input = mean_guide_input - mean_guide * mean_input  # (B, C, H, W)
-        var_guide = mean_guide_sq - mean_guide * mean_guide  # (B, 3, H, W)
-
-        # 计算线性系数
-        a = cov_guide_input / (var_guide + epsilon)  # (B, C, H, W)
-        b = mean_input - a * mean_guide  # (B, C, H, W)
-
-        # 对系数进行均值滤波 对应计算像素所在区域的所有a,b的均值
-        mean_a = F.avg_pool2d(a, kernel_size=2 * radius + 1, stride=1, padding=radius)  # (B, C, H, W)
-        mean_b = F.avg_pool2d(b, kernel_size=2 * radius + 1, stride=1, padding=radius)  # (B, C, H, W)
-
-        # 滤波结果，保持三通道
-        output = mean_a * guide_img + mean_b  # (B, C, H, W)
         
-        return output
+        # 定义Sobel算子卷积核
+        # Sobel X方向算子
+        sobel_x = torch.tensor([[-1, 0, 1],
+                               [-2, 0, 2],
+                               [-1, 0, 1]], dtype=torch.float32)
+        
+        # Sobel Y方向算子
+        sobel_y = torch.tensor([[-1, -2, -1],
+                               [ 0,  0,  0],
+                               [ 1,  2,  1]], dtype=torch.float32)
+        
+        # 将卷积核扩展为(out_channels, in_channels, H, W)格式
+        # 对于RGB三通道，每个通道都使用相同的Sobel算子
+        self.sobel_x = nn.Parameter(sobel_x.unsqueeze(0).unsqueeze(0).repeat(3, 1, 1, 1), requires_grad=False)
+        self.sobel_y = nn.Parameter(sobel_y.unsqueeze(0).unsqueeze(0).repeat(3, 1, 1, 1), requires_grad=False)
+
+    def sobel_filter(self, x):
+        '''
+        对输入图像应用Sobel算子进行边缘检测
+        输入: x (B, C, H, W)
+        输出: sobel_magnitude (B, C, H, W)
+        '''
+        B, C, H, W = x.shape
+        
+        # 对每个通道分别应用Sobel算子
+        # 使用groups=C实现分组卷积，每个通道独立处理
+        grad_x = F.conv2d(x, self.sobel_x, padding=1, groups=C)  # (B, C, H, W)
+        grad_y = F.conv2d(x, self.sobel_y, padding=1, groups=C)  # (B, C, H, W)
+        
+        # 计算梯度幅值
+        sobel_magnitude = torch.sqrt(grad_x ** 2 + grad_y ** 2 + 1e-8)  # (B, C, H, W)
+        
+        return sobel_magnitude
 
     def forward(self, x):  # 输入是RGB Tensor (B, 3, H, W), 0-1范围
         '''
         输入的x是经过ToTensor()后的，值范围[0,1]
         '''
-        # 导向图：使用RGB提供丰富的边缘信息
-        # 输入图：使用灰度图，让RGB边缘信息指导灰度图的滤波
-        gray_input = x.mean(dim=1)  # (B, H, W) 灰度图
-        base_layer = self.guided_filter(x, gray_input, radius=self.radius, epsilon=self.eps)  # 返回 (B, 3, H, W)
+        sobel_features = self.sobel_filter(x)  # (B, 3, H, W)
+        sobel_normalized = sobel_features / (sobel_features.max() + 1e-8)
 
-        # 计算细节层: detail = original - base (保持三通道)
-        detail_layer = x - base_layer  # (B, 3, H, W)
-        
-        return detail_layer
+        return sobel_normalized
 
 
 #------------------------------光谱特征提取分支--------------------------------
@@ -341,32 +337,54 @@ class TransmissionBranch(nn.Module):
         
         return dark_channel
 
-    def estimate_atmosphere_light(self, image, dark_channel, top_k=0.001):
+    def estimate_atmosphere_light(self, image, dark_channel, crop_ratio=0.1, top_k=0.001):
         '''
-        估计全局大气光值
-
+        估计全局大气光值，通过裁剪四周边缘来避免文字干扰
+        
         参数:
         - image: 输入图像 (B, 3, H, W)
         - dark_channel: 暗通道图像 (B, H, W)
+        - crop_ratio: 裁剪比例，默认0.1表示裁剪掉四周10%的区域
         - top_k: 选择最亮像素的比例，默认值为0.001 前0.1%
-
-        返回:
-        - atmosphere_light: 全局大气光值 (B, 3) 或 (3,)
         '''
-
         B, C, H, W = image.shape
-
-        # 选择暗通道中最亮的像素
-        num_pixels = max(1, int(H * W * top_k))  # 至少选择1个像素
-        flat_dark = dark_channel.view(B, -1)  # (B, H*W)
-        _, indices = torch.topk(flat_dark, k=num_pixels, dim=1)  # (B, num_pixels)
-
-        # 获取对应像素值
-        flat_image = image.view(B, C, -1)  # (B, 3, H*W)
-        batch_indices = indices.unsqueeze(1).expand(-1, C, -1)  # (B, 3, num_pixels)
-        selected_pixels = torch.gather(flat_image, 2, batch_indices)  # (B, 3, num_pixels)
-
-        # 对每个通道取最大值
+        
+        # 计算裁剪区域
+        crop_h = int(H * crop_ratio)
+        crop_w = int(W * crop_ratio)
+        
+        # 并行化处理：一次性对整个批次进行裁剪
+        if crop_h > 0 and crop_w > 0 and crop_h < H//2 and crop_w < W//2:
+            cropped_image = image[:, :, crop_h:H-crop_h, crop_w:W-crop_w]  # (B, 3, H', W')
+            cropped_dark = dark_channel[:, crop_h:H-crop_h, crop_w:W-crop_w]  # (B, H', W')
+        else:
+            cropped_image = image
+            cropped_dark = dark_channel
+        
+        # 获取裁剪后的尺寸
+        B, C, H_crop, W_crop = cropped_image.shape
+        
+        # 将暗通道值展平进行批量处理（确保内存连续性）
+        flat_dark = cropped_dark.contiguous().view(B, -1)  # (B, H'*W')
+        
+        # 批量计算每个样本需要选择的像素数量
+        num_valid_pixels = H_crop * W_crop
+        num_pixels = max(1, int(num_valid_pixels * top_k))
+        
+        # 批量选择暗通道中最亮的像素
+        _, top_indices = torch.topk(flat_dark, k=min(num_pixels, num_valid_pixels), dim=1)  # (B, num_pixels)
+        
+        # 将图像也展平以便索引（确保内存连续性）
+        flat_image = cropped_image.contiguous().view(B, C, -1)  # (B, 3, H'*W')
+        
+        # 批量提取对应像素的RGB值
+        batch_indices = torch.arange(B, device=image.device).unsqueeze(1).expand(-1, num_pixels)  # (B, num_pixels)
+        channel_indices = torch.arange(C, device=image.device).unsqueeze(0).unsqueeze(2).expand(B, -1, num_pixels)  # (B, 3, num_pixels)
+        
+        # 使用高级索引提取像素值
+        selected_pixels = flat_image[batch_indices.unsqueeze(1), channel_indices, top_indices.unsqueeze(1)]  # (B, 3, num_pixels)
+        
+        # 批量计算每个通道的最大值
         atmosphere_light = torch.max(selected_pixels, dim=2)[0]  # (B, 3)
         
         return atmosphere_light
@@ -387,16 +405,18 @@ class TransmissionBranch(nn.Module):
         B, H, W = dark_channel.shape
         C = atmosphere_light.shape[1]
 
-        # 计算每个通道的传输矩阵
-        transmission_maps = []
-        for c in range(C):
-            # 对每个通道计算 t = 1 - ω × (dark_channel / A^c)
-            A_c = atmosphere_light[:, c:c+1, None]  # (B, 1, 1)
-            t_c = 1 - omega * (dark_channel / A_c)  # (B, H, W)
-            transmission_maps.append(t_c)
+        # 并行计算所有通道的传输矩阵
+        # 扩展维度以支持广播：dark_channel (B, H, W) -> (B, 1, H, W)
+        dark_expanded = dark_channel.unsqueeze(1)  # (B, 1, H, W)
+        
+        # 扩展大气光值维度：atmosphere_light (B, 3) -> (B, 3, 1, 1)
+        A_expanded = atmosphere_light.unsqueeze(-1).unsqueeze(-1)  # (B, 3, 1, 1)
+        
+        # 并行计算所有通道的传输矩阵：t = 1 - ω × (dark_channel / A)
+        transmission_maps = 1 - omega * (dark_expanded / A_expanded)  # (B, 3, H, W)
         
         # 对所有通道的传输矩阵取平均
-        transmission_map = torch.stack(transmission_maps, dim=1).mean(dim=1)  # (B, H, W)
+        transmission_map = transmission_maps.mean(dim=1)  # (B, H, W)
         
         # 限制数值范围 0~1
         transmission_map = torch.clamp(transmission_map, 0, 1)
@@ -456,8 +476,8 @@ class TransmissionBranch(nn.Module):
         # 计算暗通道图像
         dark_channel = self.calculate_dark_channel(x, self.patch_size)  # (B, H, W)
 
-        # 估计全局大气光值
-        atmosphere_light = self.estimate_atmosphere_light(x, dark_channel)  # (B, 3)
+        # 估计全局大气光值（使用边缘裁剪）
+        atmosphere_light = self.estimate_atmosphere_light(x, dark_channel, crop_ratio=0.1)  # (B, 3)
 
         # 计算传输矩阵
         transmission_map = self.calculate_transmission_map(dark_channel, atmosphere_light, self.omega)  # (B, H, W)
@@ -498,7 +518,7 @@ def feature_extraction_block(ori_inputs, aug_inputs):
 
     spectral_branch = SpectralBranch(enhancement_factor=config.SPECTRAL_ENHANCEMENT_FACTOR).to(config.DEVICE)
 
-    detail_branch = DetailBranch(guided_radius=config.DETAIL_GUIDED_RADIUS, guided_eps=config.DETAIL_GUIDED_EPS).to(config.DEVICE)
+    detail_branch = DetailBranch().to(config.DEVICE)
 
     # 提取各分支特征，所有计算都在GPU上
     depth_feat = scene_depth_branch(ori_inputs)  # (B, 16, H, W) 或 (B, 1, H, W)

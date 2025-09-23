@@ -16,8 +16,14 @@ TEST_DATA_ROOT = os.path.join(DATA_DIR, 'test')
 MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (256, 256)  # (H, W)
-DIRECT_RESIZE = True  # True: 直接resize到目标尺寸, False: 保持长宽比+填充
+TARGET_INPUT_SIZE = (384, 384)  # (H, W) - 针对高清图像(1280x720)优化，提高到384x384
+DIRECT_RESIZE = True  # 兼容性保留，建议使用RESIZE_MODE
+RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
+# 推荐设置：
+# - 训练时: 'random_crop' (增加数据多样性)
+# - 验证/测试时: 'center_crop' (保证一致性)
+# - 低质量图像: 'direct' 或 'pad'
+# - 高清图像: 'center_crop' 或 'random_crop'
 USE_AUGMENTATION = False  # 是否启用数据增强
 
 # ==================== 模型配置 ====================
@@ -97,12 +103,8 @@ DICE_WEIGHT = 0.5  # Dice Loss权重
 # 传输通道参数
 TRANSMISSION_OMEGA = 0.95
 TRANSMISSION_PATCH_SIZE = 5
-TRANSMISSION_GUIDED_RADIUS = 25
+TRANSMISSION_GUIDED_RADIUS = 15
 TRANSMISSION_GUIDED_EPS = 1e-3
-
-# 细节通道参数
-DETAIL_GUIDED_RADIUS = 8
-DETAIL_GUIDED_EPS = 0.0004
 
 # 光谱增强参数
 SPECTRAL_ENHANCEMENT_FACTOR = 1  # 乘上倍数
