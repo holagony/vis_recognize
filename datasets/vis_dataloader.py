@@ -87,7 +87,7 @@ def collate_fn_filter_none(batch):
     return original_batch, augmented_batch, label_batch
 
 
-def worker_init_fn():
+def worker_init_fn(worker_id):
     '''
     DataLoader worker初始化函数，
     确保每个worker有不同但确定的随机种子
@@ -113,11 +113,11 @@ def get_dataloader(train_dir, val_dir, augment, weighted_sampler=False, train_re
     # 创建采样器（根据是否weighted_sampler）
     if weighted_sampler:
         train_sampler = create_weighted_sampler(train_labels, balance_factor=config.BALANCE_FACTOR)
-        train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, sampler=train_sampler, num_workers=0, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
+        train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, sampler=train_sampler, num_workers=4, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
     else:
-        train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
+        train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
 
-    val_loader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
+    val_loader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
 
     # 多返回train_labels，用于构建加权的loss function
     return train_loader, val_loader, train_labels
