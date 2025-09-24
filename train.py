@@ -359,7 +359,7 @@ def main():
     optimizer = create_optimizer(model, optimizer_type=args.optimizer)
 
     # 学习率变化策略
-    scheduler = get_lr_scheduler(optimizer, warmup_epochs=config.WARMUP_EPOCHS, total_epochs=config.EPOCHS, eta_min=config.ETA_MIN)
+    scheduler = get_lr_scheduler(optimizer, optimizer_type=args.optimizer, warmup_epochs=config.WARMUP_EPOCHS, total_epochs=config.EPOCHS, eta_min=config.ETA_MIN)
 
     # 初始化早停
     if args.early_stopping:

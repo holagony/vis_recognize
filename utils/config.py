@@ -8,14 +8,14 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 数据路径
 CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULT_DIR = os.path.join(CURRENT_DIR, 'results')
-DATA_DIR = os.path.join(CURRENT_DIR, 'data')
+DATA_DIR = os.path.join(CURRENT_DIR, './img_data/data')
 TRAIN_DATA_ROOT = os.path.join(DATA_DIR, 'train')
 VAL_DATA_ROOT = os.path.join(DATA_DIR, 'val')
 TEST_DATA_ROOT = os.path.join(DATA_DIR, 'test')
 MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (384, 384)
+TARGET_INPUT_SIZE = (256, 256)
 TRAIN_RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
 VAL_RESIZE_MODE = 'center_crop'
 USE_AUGMENTATION = False  # 数据增强
@@ -33,7 +33,7 @@ SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 
 # ==================== 训练基础配置 ====================
 # 基本训练参数
-BATCH_SIZE = 96
+BATCH_SIZE = 128
 GRADIENT_ACCUMULATION_STEPS = 1  # 梯度累积
 EPOCHS = 80
 NUM_CLASSES = 5
@@ -91,7 +91,7 @@ SUPCON_TEMPERATURE = 0.07  # 温度参数
 SUPCON_WEIGHT = 1  # 0.6
 
 # CE loss
-CE_WEIGHT = 0.5  # 0.4 / 0.5
+CE_WEIGHT = 0.4  # 0.4 / 0.5
 
 # Dice Loss
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子

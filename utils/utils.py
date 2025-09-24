@@ -105,12 +105,12 @@ def create_optimizer(model, optimizer_type='sgd'):
     return optimizer
 
 
-def get_lr_scheduler(optimizer, warmup_epochs, total_epochs, eta_min):
+def get_lr_scheduler(optimizer, optimizer_type, warmup_epochs, total_epochs, eta_min):
     '''
     学习率调度策略
     '''
     # 检查是否使用SGD优化器且启用StepLR
-    if (config.OPTIMIZER_TYPE.lower() == 'sgd' and config.SGD_USE_STEP_LR):
+    if (optimizer_type.lower() == 'sgd' and config.SGD_USE_STEP_LR):
         step_size = config.SGD_STEP_SIZE
         gamma = config.SGD_GAMMA
         print(f"SGD使用StepLR - 步长: {step_size}, 衰减因子: {gamma}")
