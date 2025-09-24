@@ -500,7 +500,7 @@ def feature_extraction_block(ori_inputs, aug_inputs):
 
     transmission_branch = TransmissionBranch(omega=config.TRANSMISSION_OMEGA, patch_size=config.TRANSMISSION_PATCH_SIZE, guided_radius=config.TRANSMISSION_GUIDED_RADIUS, guided_eps=config.TRANSMISSION_GUIDED_EPS).to(config.DEVICE)
 
-    spectral_branch = SpectralBranch(enhancement_factor=config.SPECTRAL_ENHANCEMENT_FACTOR).to(config.DEVICE)
+    spectral_branch = SpectralBranch().to(config.DEVICE)
 
     detail_branch = DetailBranch().to(config.DEVICE)
 

@@ -4,27 +4,20 @@ import torch
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # DEVICE = torch.device("cuda:1")
 
-CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(CURRENT_DIR, 'data')
-RESULT_DIR = os.path.join(CURRENT_DIR, 'results')
-
 # ==================== 数据配置 ====================
 # 数据路径
+CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESULT_DIR = os.path.join(CURRENT_DIR, 'results')
+DATA_DIR = os.path.join(CURRENT_DIR, 'data')
 TRAIN_DATA_ROOT = os.path.join(DATA_DIR, 'train')
 VAL_DATA_ROOT = os.path.join(DATA_DIR, 'val')
 TEST_DATA_ROOT = os.path.join(DATA_DIR, 'test')
 MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (384, 384)  # (H, W) - 针对高清图像(1280x720)优化，提高到384x384
-DIRECT_RESIZE = True  # 兼容性保留，建议使用RESIZE_MODE
+TARGET_INPUT_SIZE = (384, 384)
 RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
-# 推荐设置：
-# - 训练时: 'random_crop' (增加数据多样性)
-# - 验证/测试时: 'center_crop' (保证一致性)
-# - 低质量图像: 'direct' 或 'pad'
-# - 高清图像: 'center_crop' 或 'random_crop'
-USE_AUGMENTATION = False  # 是否启用数据增强
+USE_AUGMENTATION = False  # 数据增强
 
 # ==================== 模型配置 ====================
 MODEL_TYPE = 'supcon'  # resnet / supcon / wuhan
@@ -51,17 +44,17 @@ USE_SAMPLER_REPLACEMENT = False  # 是否采样有放回
 # 优化器选择
 OPTIMIZER_TYPE = 'sgd'  # 'adamw' 或 'sgd'
 
-# AdamW 参数
-LEARNING_RATE_ADAM = 1e-4
-WEIGHT_DECAY = 1e-3  # 默认1e-2
-BETAS = (0.9, 0.999)
-EPS = 1e-8
-
 # SGD 参数
 LEARNING_RATE_SGD = 5e-2
 SGD_MOMENTUM = 0.9  # SGD动量参数
 SGD_WEIGHT_DECAY = 1e-4  # SGD权重衰减（通常比AdamW小）
 SGD_NESTEROV = False  # 是否使用Nesterov动量
+
+# AdamW 参数
+LEARNING_RATE_ADAM = 1e-4
+WEIGHT_DECAY = 1e-3  # 默认1e-2
+BETAS = (0.9, 0.999)
+EPS = 1e-8
 
 # ==================== 学习率调度配置 ====================
 # 预热参数
@@ -92,12 +85,13 @@ LABEL_SMOOTHING = 0.05  # 标签平滑
 # SupCon loss
 SUPCON_TEMPERATURE = 0.07  # 温度参数
 SUPCON_WEIGHT = 1 # 0.6
+
+# CE loss
 CE_WEIGHT = 0.5 # 0.4 / 0.5
 
-# Dice Loss 组合损失配置参数
+# Dice Loss
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子
 DICE_WEIGHT = 0.5  # Dice Loss权重
-# CE_WEIGHT = 0.5  # Cross Entropy权重
 
 # ==================== 特征提取配置 ====================
 # 传输通道参数
@@ -106,9 +100,6 @@ TRANSMISSION_OMEGA = 0.95
 TRANSMISSION_PATCH_SIZE = 7
 TRANSMISSION_GUIDED_RADIUS = 15
 TRANSMISSION_GUIDED_EPS = 1e-3
-
-# 光谱增强参数
-SPECTRAL_ENHANCEMENT_FACTOR = 1  # 乘上倍数
 
 # ==================== 配置说明 ====================
 # 学习率调度说明：
