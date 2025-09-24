@@ -16,11 +16,12 @@ MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
 TARGET_INPUT_SIZE = (384, 384)
-RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
+TRAIN_RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
+VAL_RESIZE_MODE = 'center_crop'
 USE_AUGMENTATION = False  # 数据增强
 
 # ==================== 模型配置 ====================
-MODEL_TYPE = 'supcon'  # resnet / supcon / wuhan
+MODEL_TYPE = 'resnet34_supcon'
 USE_SIMPLE_DEPTH = True  # True: MobileNet, False: DPT
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 
@@ -41,9 +42,6 @@ BALANCE_FACTOR = 0.3  # 控制采样平衡的比例
 USE_SAMPLER_REPLACEMENT = False  # 是否采样有放回
 
 # ==================== 优化器配置 ====================
-# 优化器选择
-OPTIMIZER_TYPE = 'sgd'  # 'adamw' 或 'sgd'
-
 # SGD 参数
 LEARNING_RATE_SGD = 5e-2
 SGD_MOMENTUM = 0.9  # SGD动量参数
@@ -84,10 +82,10 @@ LABEL_SMOOTHING = 0.05  # 标签平滑
 
 # SupCon loss
 SUPCON_TEMPERATURE = 0.07  # 温度参数
-SUPCON_WEIGHT = 1 # 0.6
+SUPCON_WEIGHT = 1  # 0.6
 
 # CE loss
-CE_WEIGHT = 0.5 # 0.4 / 0.5
+CE_WEIGHT = 0.5  # 0.4 / 0.5
 
 # Dice Loss
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子

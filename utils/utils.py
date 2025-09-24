@@ -89,7 +89,7 @@ def normalize_feature_channels(batch_features, depth_ch=1):
     return batch_features
 
 
-def create_optimizer(model, optimizer_type='adamw'):
+def create_optimizer(model, optimizer_type='sgd'):
     '''
     根据配置创建优化器 AdamW or SGD
     '''

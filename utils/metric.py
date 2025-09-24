@@ -78,4 +78,4 @@ def calculate_metrics(y_true, y_pred, num_classes=5):
         'imbalance_ratio': imbalance_ratio,
         'class_counts': class_counts.tolist()
     }
-    return info, report
+    return info, report, cm
