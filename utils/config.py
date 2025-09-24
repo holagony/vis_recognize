@@ -101,8 +101,9 @@ DICE_WEIGHT = 0.5  # Dice Loss权重
 
 # ==================== 特征提取配置 ====================
 # 传输通道参数
+# 512x512 path_size=9. radius=20
 TRANSMISSION_OMEGA = 0.95
-TRANSMISSION_PATCH_SIZE = 5
+TRANSMISSION_PATCH_SIZE = 7
 TRANSMISSION_GUIDED_RADIUS = 15
 TRANSMISSION_GUIDED_EPS = 1e-3
 

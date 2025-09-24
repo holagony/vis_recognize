@@ -5,24 +5,14 @@ from model_hub.dptransformer.dpt.models import DPTDepthModel
 from torchvision.models import mobilenet_v2
 from torchvision.transforms import functional as TF
 from utils import config
-import cv2
-import numpy as np
-from PIL import Image
-import os
-
 '''
 四个分支：
-1. 深度估计分支，输出(1 or 16, H, W) - 1/16通道深度图，数值范围[-1, 1]
+1. 深度估计分支，输出(1 or 16, H, W) - 1 or 16通道深度图，数值范围[0, 1]
 2. 细节特征提取分支，输出(3, H, W) - 三通道细节特征，数值范围[0, 1]
-3. 光谱特征提取分支，输出(3, H, W) - 三通道LAB特征，L[0,1], A[-0.5,0.5], B[-0.5,0.5]
+3. 光谱特征提取分支，输出(3, H, W) - LAB的L通道和HSV的V、S通道，数值范围[0, 1]
 4. 传输矩阵估计分支，输出(1, H, W) - 单通道传输矩阵，数值范围[0, 1]
-
-RGB: [0, 1] - 标准图像值范围
-深度: [-1, 1] - 相对深度信息，正负表示前后关系
-传输: [0, 1] - 能见度信息，0表示完全不可见，1表示完全可见
-光谱: L[0,1], A[-0.5,0.5], B[-0.5,0.5] - 色彩空间标准范围
-细节: [-1, 1] - 细节增强，正负表示增强和抑制
 '''
+
 
 #------------------------------深度估计分支--------------------------------
 class DPTSceneDepthBranch(nn.Module):
@@ -48,7 +38,6 @@ class DPTSceneDepthBranch(nn.Module):
         for param in self.dpt_model.parameters():  # 冻结参数
             param.requires_grad = False
 
-        # 将整个模块移动到指定设备
         self.to(self.device)
         self.dpt_model.eval()
 
@@ -68,13 +57,11 @@ class DPTSceneDepthBranch(nn.Module):
 
 class MobileNetEncoder(nn.Module):
 
-    def __init__(self, device='cpu'):  # 移除 model_weight_path 参数
+    def __init__(self, device='cpu'):
         super().__init__()
         self.device = device  # 保存 device
 
-        # 创建 MobileNetV2 结构（不加载权重，权重将在外层统一加载）
         mobilenet_model_struct = mobilenet_v2(weights=None)
-
         self.features = mobilenet_model_struct.features
         self.output_channels = 1280
         self.layer0 = self.features[0:2]
@@ -85,8 +72,6 @@ class MobileNetEncoder(nn.Module):
         self.to(self.device)
 
     def forward(self, x):
-        # 确保输入在同一设备
-        # x = x.to(self.device)
         skips = {}
         x0 = self.layer0(x)
         skips['skip1'] = x0
@@ -97,6 +82,7 @@ class MobileNetEncoder(nn.Module):
         x3 = self.layer3(x2)
         skips['skip4'] = x3
         bottleneck = self.layer4(x3)
+
         return bottleneck, skips
 
 
@@ -115,6 +101,7 @@ class MobileNetDecoder(nn.Module):
         x = torch.cat([x, skip_feature], dim=1)
         x = self.conv1(x)
         x = self.conv2(x)
+
         return x
 
 
@@ -122,7 +109,7 @@ class SimpleSceneDepthBranch(nn.Module):
 
     def __init__(self, model_weight_path, freeze_weights=True, device='cpu'):
         super().__init__()
-        self.device = device  # 保存 device
+        self.device = device
         self.encoder = MobileNetEncoder(device=self.device)
 
         bottleneck_channels = 320
@@ -137,13 +124,10 @@ class SimpleSceneDepthBranch(nn.Module):
 
         if model_weight_path:
             checkpoint = torch.load(model_weight_path, map_location=self.device, weights_only=False)
-
-            # 处理不同的权重文件格式
             if 'model_state_dict' in checkpoint:
                 state_dict = checkpoint['model_state_dict']
             elif 'state_dict' in checkpoint:
                 state_dict = checkpoint['state_dict']
-                # 移除 'model.' 前缀（如果存在）
                 new_state_dict = {}
                 for k, v in state_dict.items():
                     if k.startswith("model."):
@@ -152,7 +136,6 @@ class SimpleSceneDepthBranch(nn.Module):
                         new_state_dict[k] = v
                 state_dict = new_state_dict
             else:
-                # 直接是state_dict格式
                 state_dict = checkpoint
 
             try:
@@ -174,9 +157,7 @@ class SimpleSceneDepthBranch(nn.Module):
         d1 = self.dec1(d2, skips['skip1'])
         features_before_final_conv = self.final_upsample(d1)
         output = self.final_conv(features_before_final_conv)
-
-        # 添加激活函数限制输出范围，避免数值过大
-        output = torch.tanh(output)  # 限制到[-1, 1]
+        output = torch.sigmoid(output)  # 限制到[0, 1]
 
         return output
 
@@ -191,18 +172,11 @@ class DetailBranch(nn.Module):
 
     def __init__(self):
         super().__init__()
-        
+
         # 定义Sobel算子卷积核
-        # Sobel X方向算子
-        sobel_x = torch.tensor([[-1, 0, 1],
-                               [-2, 0, 2],
-                               [-1, 0, 1]], dtype=torch.float32)
-        
-        # Sobel Y方向算子
-        sobel_y = torch.tensor([[-1, -2, -1],
-                               [ 0,  0,  0],
-                               [ 1,  2,  1]], dtype=torch.float32)
-        
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32)
+
         # 将卷积核扩展为(out_channels, in_channels, H, W)格式
         # 对于RGB三通道，每个通道都使用相同的Sobel算子
         self.sobel_x = nn.Parameter(sobel_x.unsqueeze(0).unsqueeze(0).repeat(3, 1, 1, 1), requires_grad=False)
@@ -215,20 +189,21 @@ class DetailBranch(nn.Module):
         输出: sobel_magnitude (B, C, H, W)
         '''
         B, C, H, W = x.shape
-        
+
         # 对每个通道分别应用Sobel算子
         # 使用groups=C实现分组卷积，每个通道独立处理
         grad_x = F.conv2d(x, self.sobel_x, padding=1, groups=C)  # (B, C, H, W)
         grad_y = F.conv2d(x, self.sobel_y, padding=1, groups=C)  # (B, C, H, W)
-        
+
         # 计算梯度幅值
-        sobel_magnitude = torch.sqrt(grad_x ** 2 + grad_y ** 2 + 1e-8)  # (B, C, H, W)
-        
+        sobel_magnitude = torch.sqrt(grad_x**2 + grad_y**2 + 1e-8)  # (B, C, H, W)
+
         return sobel_magnitude
 
-    def forward(self, x):  # 输入是RGB Tensor (B, 3, H, W), 0-1范围
+    def forward(self, x):
         '''
-        输入的x是经过ToTensor()后的，值范围[0,1]
+        输入的x是RGB Tensor (B, 3, H, W)
+        是经过ToTensor()后的，值范围[0,1]
         '''
         sobel_features = self.sobel_filter(x)  # (B, 3, H, W)
         sobel_normalized = sobel_features / (sobel_features.max() + 1e-8)
@@ -239,72 +214,83 @@ class DetailBranch(nn.Module):
 #------------------------------光谱特征提取分支--------------------------------
 class SpectralBranch(nn.Module):
 
-    def __init__(self, enhancement_factor=2.0):
+    def __init__(self):
         super().__init__()
-        self.enhancement_factor = enhancement_factor
 
-    def rgb_to_lab(self, image):
+    def rgb_to_lab_l(self, image):
         '''
-        将RGB图像转换为简化的LAB色彩空间表示
+        将RGB图像转换为LAB色彩空间，提取L通道
         输入RGB图像，形状为 (B, 3, H, W)，值范围[0,1]
-        输出LAB图像，形状为 (B, 3, H, W)
+        输出L通道，形状为 (B, 1, H, W)，值范围[0,1]
         '''
-        # 简化的RGB到LAB转换：
-        # L通道：亮度（标准灰度计算）范围[0,1]
-        # A通道：红绿差异，范围[-0.5,0.5]
-        # B通道：蓝黄差异，范围[-0.5,0.5]
+        # 标准RGB到LAB转换流程：RGB -> XYZ -> LAB
         R = image[:, 0:1, :, :]  # (B, 1, H, W)
         G = image[:, 1:2, :, :]  # (B, 1, H, W)
         B = image[:, 2:3, :, :]  # (B, 1, H, W)
 
-        # L通道：标准亮度计算
-        L = 0.299 * R + 0.587 * G + 0.114 * B  # 范围[0,1]
+        # 步骤1：RGB到XYZ色彩空间转换（使用sRGB标准）
+        # 先进行gamma校正
+        def gamma_correction(channel):
+            return torch.where(channel <= 0.04045, channel / 12.92, torch.pow((channel + 0.055) / 1.055, 2.4))
 
-        # A通道：红绿对比
-        A = (R - G) * 0.5  # 范围[-0.5,0.5]
+        R_linear = gamma_correction(R)
+        G_linear = gamma_correction(G)
+        B_linear = gamma_correction(B)
 
-        # B通道：蓝黄对比，修正计算
-        yellow = (R + G) * 0.5  # 黄色分量
-        B_ch = (B - yellow) * 0.5  # 蓝-黄差异，范围[-0.5,0.5]
+        # RGB到XYZ转换矩阵（sRGB标准，D65白点）
+        Y = 0.2126729 * R_linear + 0.7151522 * G_linear + 0.0721750 * B_linear
 
-        lab_image = torch.cat([L, A, B_ch], dim=1)  # (B, 3, H, W)
+        # 步骤2：XYZ到LAB转换（只需要Y分量计算L通道）
+        # D65白点参考值
+        Yn = 1.00000
 
-        return lab_image
+        # 归一化Y
+        Y_norm = Y / Yn
 
-    def apply_spectral_enhancement(self, lab_image):
+        # LAB转换函数
+        def lab_f(t):
+            delta = 6.0 / 29.0
+            return torch.where(t > delta**3, torch.pow(t, 1.0 / 3.0), t / (3 * delta**2) + 4.0 / 29.0)
+
+        # 计算L值，归一化到[0,1]范围
+        fy = lab_f(Y_norm)
+        L = 116 * fy - 16  # 范围[0, 100]
+        L_norm = torch.clamp(L / 100.0, 0, 1)  # [0,1]
+
+        return L_norm
+
+    def rgb_to_hsv_vs(self, image):
         '''
-        对LAB图像的A和B通道进行增强。
-        输入: lab_image (B, 3, H, W) - L[0,1], A[-0.5,0.5], B[-0.5,0.5]
+        将RGB图像转换为HSV色彩空间，提取V和S通道
+        输入RGB图像，形状为 (B, 3, H, W)，值范围[0,1]
+        输出V和S通道，形状为 (B, 2, H, W)，值范围[0,1]
         '''
-        # 分离 L, A, B 通道
-        L = lab_image[:, 0:1, :, :]  # (B, 1, H, W)
-        A = lab_image[:, 1:2, :, :]  # (B, 1, H, W)
-        B = lab_image[:, 2:3, :, :]  # (B, 1, H, W)
+        R = image[:, 0:1, :, :]  # (B, 1, H, W)
+        G = image[:, 1:2, :, :]  # (B, 1, H, W)
+        B = image[:, 2:3, :, :]  # (B, 1, H, W)
 
-        # 对 A 和 B 通道进行增强
-        A_enhanced = A * self.enhancement_factor
-        B_enhanced = B * self.enhancement_factor
+        # V通道是RGB三个通道的最大值
+        V = torch.max(torch.max(R, G), B)  # (B, 1, H, W)
 
-        # 裁剪到合理范围，保持与原始范围一致
-        A_enhanced = torch.clamp(A_enhanced, -0.5, 0.5)
-        B_enhanced = torch.clamp(B_enhanced, -0.5, 0.5)
+        # S通道计算：S = (V - min) / V，当V=0时S=0
+        min_val = torch.min(torch.min(R, G), B)  # (B, 1, H, W)
+        S = torch.where(V > 1e-8, (V - min_val) / V, torch.zeros_like(V))  # (B, 1, H, W)
 
-        # 重新组合
-        enhanced_lab = torch.cat([L, A_enhanced, B_enhanced], dim=1)  # (B, 3, H, W)
+        # 合并V和S通道
+        result = torch.cat([V, S], dim=1)  # (B, 2, H, W)
 
-        return enhanced_lab
+        return result
 
     def forward(self, x):
         '''
         输入的x是经过ToTensor()后的，值范围[0,1]，形状为(B, 3, H, W)
-        输出: 处理后的LAB特征图 (B, 3, H, W)
+        输出: LAB的L通道和HSV的V、S通道 (B, 3, H, W)
         '''
+        lab_l = self.rgb_to_lab_l(x)  # (B, 1, H, W)
+        hsv_vs = self.rgb_to_hsv_vs(x)  # (B, 2, H, W)
+        result = torch.cat([lab_l, hsv_vs], dim=1)  # (B, 3, H, W)
 
-        # 直接使用输入，输入已经是[0,1]范围
-        lab_image = self.rgb_to_lab(x)
-        enhanced_lab = self.apply_spectral_enhancement(lab_image)
-
-        return enhanced_lab
+        return result
 
 
 #------------------------------传输矩阵估计分支--------------------------------
@@ -334,7 +320,7 @@ class TransmissionBranch(nn.Module):
         # 使用最大池化操作计算局部最小值 min(x) = -max(-x)
         padding = patch_size // 2  # padding = (patch_size - 1) / 2
         dark_channel = -F.max_pool2d(-min_channel.unsqueeze(1), kernel_size=patch_size, stride=1, padding=padding).squeeze(1)  # (B, H, W)
-        
+
         return dark_channel
 
     def estimate_atmosphere_light(self, image, dark_channel, crop_ratio=0.1, top_k=0.001):
@@ -348,45 +334,45 @@ class TransmissionBranch(nn.Module):
         - top_k: 选择最亮像素的比例，默认值为0.001 前0.1%
         '''
         B, C, H, W = image.shape
-        
+
         # 计算裁剪区域
         crop_h = int(H * crop_ratio)
         crop_w = int(W * crop_ratio)
-        
+
         # 并行化处理：一次性对整个批次进行裁剪
-        if crop_h > 0 and crop_w > 0 and crop_h < H//2 and crop_w < W//2:
-            cropped_image = image[:, :, crop_h:H-crop_h, crop_w:W-crop_w]  # (B, 3, H', W')
-            cropped_dark = dark_channel[:, crop_h:H-crop_h, crop_w:W-crop_w]  # (B, H', W')
+        if crop_h > 0 and crop_w > 0 and crop_h < H // 2 and crop_w < W // 2:
+            cropped_image = image[:, :, crop_h:H - crop_h, crop_w:W - crop_w]  # (B, 3, H', W')
+            cropped_dark = dark_channel[:, crop_h:H - crop_h, crop_w:W - crop_w]  # (B, H', W')
         else:
             cropped_image = image
             cropped_dark = dark_channel
-        
+
         # 获取裁剪后的尺寸
         B, C, H_crop, W_crop = cropped_image.shape
-        
+
         # 将暗通道值展平进行批量处理（确保内存连续性）
         flat_dark = cropped_dark.contiguous().view(B, -1)  # (B, H'*W')
-        
+
         # 批量计算每个样本需要选择的像素数量
         num_valid_pixels = H_crop * W_crop
         num_pixels = max(1, int(num_valid_pixels * top_k))
-        
+
         # 批量选择暗通道中最亮的像素
         _, top_indices = torch.topk(flat_dark, k=min(num_pixels, num_valid_pixels), dim=1)  # (B, num_pixels)
-        
+
         # 将图像也展平以便索引（确保内存连续性）
         flat_image = cropped_image.contiguous().view(B, C, -1)  # (B, 3, H'*W')
-        
+
         # 批量提取对应像素的RGB值
         batch_indices = torch.arange(B, device=image.device).unsqueeze(1).expand(-1, num_pixels)  # (B, num_pixels)
         channel_indices = torch.arange(C, device=image.device).unsqueeze(0).unsqueeze(2).expand(B, -1, num_pixels)  # (B, 3, num_pixels)
-        
+
         # 使用高级索引提取像素值
         selected_pixels = flat_image[batch_indices.unsqueeze(1), channel_indices, top_indices.unsqueeze(1)]  # (B, 3, num_pixels)
-        
+
         # 批量计算每个通道的最大值
         atmosphere_light = torch.max(selected_pixels, dim=2)[0]  # (B, 3)
-        
+
         return atmosphere_light
 
     def calculate_transmission_map(self, dark_channel, atmosphere_light, omega=0.95):
@@ -408,19 +394,19 @@ class TransmissionBranch(nn.Module):
         # 并行计算所有通道的传输矩阵
         # 扩展维度以支持广播：dark_channel (B, H, W) -> (B, 1, H, W)
         dark_expanded = dark_channel.unsqueeze(1)  # (B, 1, H, W)
-        
+
         # 扩展大气光值维度：atmosphere_light (B, 3) -> (B, 3, 1, 1)
         A_expanded = atmosphere_light.unsqueeze(-1).unsqueeze(-1)  # (B, 3, 1, 1)
-        
+
         # 并行计算所有通道的传输矩阵：t = 1 - ω × (dark_channel / A)
         transmission_maps = 1 - omega * (dark_expanded / A_expanded)  # (B, 3, H, W)
-        
+
         # 对所有通道的传输矩阵取平均
         transmission_map = transmission_maps.mean(dim=1)  # (B, H, W)
-        
+
         # 限制数值范围 0~1
         transmission_map = torch.clamp(transmission_map, 0, 1)
-        
+
         return transmission_map
 
     def guided_filter(self, guide_img, input_img, radius=5, epsilon=1e-3):
@@ -462,9 +448,10 @@ class TransmissionBranch(nn.Module):
 
         # 滤波结果
         output = mean_a * guide_img + mean_b  # (B, C, H, W)
+
         # 由于input_img是单通道扩展的，所以3个通道结果相同，直接取第一个通道
         output = output[:, 0, :, :]  # (B, H, W)
-        
+
         return output
 
     def forward(self, x):
@@ -491,7 +478,7 @@ class TransmissionBranch(nn.Module):
 
         # 添加通道维度，输出 (B, 1, H, W)
         refined_transmission_map = refined_transmission_map.unsqueeze(1)  # (B, H, W) -> (B, 1, H, W)
-        
+
         return refined_transmission_map
 
 
@@ -511,10 +498,7 @@ def feature_extraction_block(ori_inputs, aug_inputs):
     else:
         scene_depth_branch = DPTSceneDepthBranch(dpt_model_type='dpt_hybrid', device=config.DEVICE)
 
-    transmission_branch = TransmissionBranch(omega=config.TRANSMISSION_OMEGA,
-                                            patch_size=config.TRANSMISSION_PATCH_SIZE,
-                                            guided_radius=config.TRANSMISSION_GUIDED_RADIUS,
-                                            guided_eps=config.TRANSMISSION_GUIDED_EPS).to(config.DEVICE)
+    transmission_branch = TransmissionBranch(omega=config.TRANSMISSION_OMEGA, patch_size=config.TRANSMISSION_PATCH_SIZE, guided_radius=config.TRANSMISSION_GUIDED_RADIUS, guided_eps=config.TRANSMISSION_GUIDED_EPS).to(config.DEVICE)
 
     spectral_branch = SpectralBranch(enhancement_factor=config.SPECTRAL_ENHANCEMENT_FACTOR).to(config.DEVICE)
 
@@ -526,9 +510,9 @@ def feature_extraction_block(ori_inputs, aug_inputs):
     spectral_feat = spectral_branch(ori_inputs)  # (B, 3, H, W)
     detail_feat = detail_branch(ori_inputs)  # (B, 3, H, W)
     rgb_feat = aug_inputs  # (B, 3, H, W)
-    
+
     # 拼接特征
     init_features = torch.cat([rgb_feat, depth_feat, transmission_feat, spectral_feat, detail_feat], dim=1)  # (B, C, H, W)
     num_channels = init_features.shape[1]
-    
+
     return init_features, num_channels
