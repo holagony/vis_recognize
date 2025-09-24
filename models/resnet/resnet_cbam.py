@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 from utils import config
 
-
 __all__ = ['ResNet', 'resnet18_cbam', 'resnet34_cbam', 'resnet50_cbam', 'resnet101_cbam', 'resnet152_cbam']
 
 model_urls = {
@@ -181,7 +180,7 @@ class ResNet(nn.Module):
             elif isinstance(m, (ChannelAttention, SpatialAttention)):
                 # 注意力模块的特殊初始化
                 self._init_attention_module(m)
-    
+
     def _init_attention_module(self, module):
         '''
         注意力模块的特殊初始化
@@ -199,8 +198,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
-                                       nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
