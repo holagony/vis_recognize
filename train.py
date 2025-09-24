@@ -490,10 +490,10 @@ if __name__ == '__main__':
     # 使用SGD优化器的示例
     sys.argv = [
         'train.py',
-        '--optimizer', 'sgd',
-        '--loss_type', 'crossentropy',
         '--weighted_loss',
-        '--early_stopping'
+        '--early_stopping',
+        '--loss_type', 'crossentropy',
+        '--optimizer', 'sgd',
     ]
 
     main()
