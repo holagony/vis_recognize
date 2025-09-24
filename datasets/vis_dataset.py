@@ -8,26 +8,23 @@ from datasets.vis_augmentation import VisAugmentation
 
 
 class InputResize:
-    '''
-    高清图像自适应处理，针对1280x720等高分辨率图像优化
-    
-    支持四种模式：
-    1. 直接resize：直接缩放到目标尺寸（可能改变长宽比）
+    '''    
+    原始图像数据resize，支持四种模式：
+    1. 直接resize：直接缩放到目标尺寸（改变长宽比）
     2. 保持长宽比 + 填充：图像保持原始长宽比，用黑色填充到目标尺寸
     3. 中心裁剪：先缩放到合适尺寸，然后从中心裁剪到目标尺寸
     4. 随机裁剪：先缩放到合适尺寸，然后随机裁剪到目标尺寸（训练时推荐）
     
-    参数:
-        target_size: 目标尺寸，可以是int或tuple(H, W)
-        interpolation: 插值方法
-        resize_mode: 'direct', 'pad', 'center_crop', 'random_crop'
-        is_train: 是否为训练模式（影响随机裁剪的行为）
+    target_size: 目标尺寸，可以是int或tuple(H, W)
+    is_train: 是否为训练模式
+    resize_mode: 'direct', 'pad', 'center_crop', 'random_crop'
     '''
-    def __init__(self, target_size, interpolation=T.InterpolationMode.BILINEAR, 
-                 resize_mode='center_crop', is_train=True):
-        self.interpolation = interpolation
-        self.resize_mode = resize_mode
+
+    def __init__(self, target_size, is_train=True, resize_mode='center_crop'):
+        self.interpolation = T.InterpolationMode.BILINEAR
         self.is_train = is_train
+        self.resize_mode = resize_mode
+
         if isinstance(target_size, int):
             self.target_h, self.target_w = target_size, target_size
         else:
@@ -36,22 +33,20 @@ class InputResize:
     def __call__(self, img_pil):
         original_w, original_h = img_pil.size  # PIL返回(width, height)
         original_size = (original_h, original_w)
-        
-        if self.resize_mode == 'direct':
-            # 直接resize（原有方法）
+
+        if self.resize_mode == 'direct':  # 直接resize
             img_resized = TF.resize(img_pil, (self.target_h, self.target_w), interpolation=self.interpolation)
             img_resized.original_size = original_size
             return img_resized
-            
-        elif self.resize_mode == 'pad':
-            # 保持长宽比 + 填充（原有方法）
+
+        elif self.resize_mode == 'pad':  # resize保持长宽比 + 填充黑色
             scale_h = self.target_h / original_h
             scale_w = self.target_w / original_w
             scale = min(scale_h, scale_w)
-    
             new_h = int(original_h * scale)
             new_w = int(original_w * scale)
             img_resized = TF.resize(img_pil, (new_h, new_w), interpolation=self.interpolation)
+
             pad_h = max(0, self.target_h - new_h)
             pad_w = max(0, self.target_w - new_w)
             pad_top = pad_h // 2
@@ -61,85 +56,65 @@ class InputResize:
             img_padded = TF.pad(img_resized, [pad_left, pad_top, pad_right, pad_bottom], fill=0)
             img_padded.original_size = original_size
             return img_padded
-            
-        elif self.resize_mode == 'center_crop':
-            # 中心裁剪：适合高清图像，保留图像中心区域
+
+        elif self.resize_mode == 'center_crop':  # 中心裁剪：适合高清图像，保留图像中心区域
             scale_h = self.target_h / original_h
             scale_w = self.target_w / original_w
-            scale = max(scale_h, scale_w)  # 使用较大的缩放比例确保覆盖目标尺寸
-            
+            scale = max(scale_h, scale_w)  # 使用较大的缩放比例确保覆盖目标尺寸，缩放长款比保持不变
+
             # 先缩放到能够覆盖目标尺寸的最小尺寸
             new_h = int(original_h * scale)
             new_w = int(original_w * scale)
             img_resized = TF.resize(img_pil, (new_h, new_w), interpolation=self.interpolation)
-            
+
             # 从中心裁剪到目标尺寸
             img_cropped = TF.center_crop(img_resized, (self.target_h, self.target_w))
             img_cropped.original_size = original_size
             return img_cropped
-            
-        elif self.resize_mode == 'random_crop':
-            # 随机裁剪：训练时增加数据多样性
+
+        elif self.resize_mode == 'random_crop':  # 随机裁剪
             scale_h = self.target_h / original_h
             scale_w = self.target_w / original_w
             scale = max(scale_h, scale_w)
-            
+
             # 先缩放到能够覆盖目标尺寸的最小尺寸
             new_h = int(original_h * scale)
             new_w = int(original_w * scale)
             img_resized = TF.resize(img_pil, (new_h, new_w), interpolation=self.interpolation)
-            
+
             if self.is_train:
                 # 训练时使用随机裁剪
                 if new_h > self.target_h or new_w > self.target_w:
                     # 计算可裁剪的范围
                     max_top = max(0, new_h - self.target_h)
                     max_left = max(0, new_w - self.target_w)
-                    top = torch.randint(0, max_top + 1, (1,)).item() if max_top > 0 else 0
-                    left = torch.randint(0, max_left + 1, (1,)).item() if max_left > 0 else 0
+                    top = torch.randint(0, max_top + 1, (1, )).item() if max_top > 0 else 0
+                    left = torch.randint(0, max_left + 1, (1, )).item() if max_left > 0 else 0
                     img_cropped = TF.crop(img_resized, top, left, self.target_h, self.target_w)
                 else:
                     img_cropped = img_resized
-            else:
-                # 验证/测试时使用中心裁剪保证一致性
-                img_cropped = TF.center_crop(img_resized, (self.target_h, self.target_w))
-            
+
             img_cropped.original_size = original_size
             return img_cropped
-        
-        else:
-            raise ValueError(f"Unsupported resize_mode: {self.resize_mode}")
 
 
 class VisibilityDataset(Dataset):
     '''
-    高速公路能见度数据集处理，针对高清图像（1280x720）优化。
-    
+    高速公路能见度数据集构建
     image_paths: 图像路径列表
     labels: 标签列表
     augment: 是否使用数据增强
     is_train: 是否为训练模式（影响数据增强的应用）
     resize_mode: 图像处理模式 ('direct', 'pad', 'center_crop', 'random_crop')
     '''
+
     def __init__(self, image_paths, labels, augment, is_train=True, resize_mode='center_crop'):
         self.image_paths = image_paths
         self.labels = labels
-        self.is_train = is_train
         self.augment = augment
+        self.is_train = is_train
+        self.resize_mode = resize_mode
         self.target_size = config.TARGET_INPUT_SIZE
-        
-        # 根据配置选择resize模式，优先使用传入的参数
-        if hasattr(config, 'RESIZE_MODE'):
-            self.resize_mode = config.RESIZE_MODE
-        else:
-            self.resize_mode = resize_mode
-            
-        # 为高清图像推荐使用center_crop或random_crop
-        if self.is_train and self.resize_mode == 'random_crop':
-            print(f"训练模式：使用随机裁剪 ({self.resize_mode})，增加数据多样性")
-        elif not self.is_train and self.resize_mode in ['center_crop', 'random_crop']:
-            print(f"验证/测试模式：使用中心裁剪保证一致性")
-            
         self.size_transform = InputResize(self.target_size, resize_mode=self.resize_mode, is_train=self.is_train)
         self.flip_transform = T.RandomHorizontalFlip(p=0.5)
         self.tensor_transform = T.ToTensor()
@@ -160,21 +135,20 @@ class VisibilityDataset(Dataset):
         image = Image.open(image_path).convert('RGB')
         image = self.size_transform(image)
 
-        if self.is_train: # 概率水平翻转
+        if self.is_train:  # 概率水平翻转
             image = self.flip_transform(image)
 
         # 先转换为原始tensor，用于特征提取
         original_image = self.tensor_transform(image)
-        
+
         # 创建增强后的tensor用于特征融合
-        if self.is_train and self.augment:
-            # 对PIL Image进行增强
+        if self.is_train and self.augment:  # 启动数据增强
             augmented_pil = self.augment_transform(image, label)
             augmented_image = self.tensor_transform(augmented_pil)
         else:
-            # 验证/测试模式：不应用任何增强
-            augmented_image = original_image.clone()
+            augmented_image = original_image.clone()  # 不增强
 
         # 返回原始图像和增强图像，不进行特征提取
+        # 目前没有数据增强，两个tensor是一样的
         # original_image用于物理特征提取，augmented_image用于特征融合
         return original_image, augmented_image, label

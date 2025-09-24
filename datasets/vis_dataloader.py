@@ -5,8 +5,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from collections import Counter
-from datasets.vis_dataset import VisibilityDataset
 from utils import config
+from datasets.vis_dataset import VisibilityDataset
 
 
 def img_dataloader(data_dir_path):
@@ -38,13 +38,11 @@ def img_dataloader(data_dir_path):
 def create_weighted_sampler(labels, balance_factor=config.BALANCE_FACTOR):
     '''
     创建加权采样器来处理不平衡数据集，支持可调节的平衡程度。
-    
-    Args:
-        labels: 训练标签列表
-        balance_factor: 平衡因子，控制采样策略的激进程度
-                       - 0.0: 使用原始分布（不进行平衡）
-                       - 0.5: 中等平衡（推荐）
-                       - 1.0: 完全平衡（激进策略）
+    labels: 训练标签列表
+    balance_factor: 平衡因子，控制采样策略的激进程度
+                    - 0.0: 使用原始分布（不进行平衡）
+                    - 0.5: 中等平衡（推荐）
+                    - 1.0: 完全平衡（激进策略）
     '''
     class_counts = Counter(labels)
     total_samples = len(labels)
@@ -56,16 +54,13 @@ def create_weighted_sampler(labels, balance_factor=config.BALANCE_FACTOR):
             epsilon = 1e-5
             # 计算完全平衡的权重
             balanced_weight = total_samples / (config.NUM_CLASSES * (class_counts[class_idx] + epsilon))
-            # 原始权重（1.0）
-            original_weight = 1.0
-            
             # 使用线性插值混合原始分布和平衡分布
+            original_weight = 1.0
             class_weights[class_idx] = (1 - balance_factor) * original_weight + balance_factor * balanced_weight
         else:
             class_weights[class_idx] = 1.0
 
-    # 为每个样本分配权重
-    sample_weights = [class_weights[label] for label in labels]
+    sample_weights = [class_weights[label] for label in labels]  # 为每个样本分配权重
 
     return WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=config.USE_SAMPLER_REPLACEMENT)
 
@@ -94,72 +89,42 @@ def collate_fn_filter_none(batch):
 
 def worker_init_fn():
     '''
-    DataLoader worker初始化函数，确保每个worker有不同但确定的随机种子
+    DataLoader worker初始化函数，
+    确保每个worker有不同但确定的随机种子
     '''
-    # 获取主进程的随机种子
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 
-def get_dataloader(train_dir, val_dir, augment=config.USE_AUGMENTATION, weighted_sampler=False, 
-                   train_resize_mode='random_crop', val_resize_mode='center_crop'):
+def get_dataloader(train_dir, val_dir, augment, weighted_sampler=False, train_resize_mode='random_crop', val_resize_mode='center_crop'):
     '''
-    weighted_sampler：使用加权采样器
-    train_resize_mode：训练时的图像处理模式，默认使用random_crop
-    val_resize_mode：验证时的图像处理模式，默认使用center_crop
+    augment：是否使用数据增强
+    weighted_sampler：是否使用加权采样器
+    train_resize_mode：训练时的图像处理模式
+    val_resize_mode：验证时的图像处理模式
     '''
-    # 设置默认的resize模式
-    if train_resize_mode is None:
-        train_resize_mode = 'random_crop' if hasattr(config, 'RESIZE_MODE') and config.RESIZE_MODE == 'random_crop' else config.RESIZE_MODE
-    if val_resize_mode is None:
-        val_resize_mode = 'center_crop'  # 验证时总是使用center_crop保证一致性
-    
-    print(f"数据加载配置：")
-    print(f"  - 目标尺寸: {config.TARGET_INPUT_SIZE}")
-    print(f"  - 训练模式: {train_resize_mode}")
-    print(f"  - 验证模式: {val_resize_mode}")
-    print(f"  - 数据增强: {augment}")
-    print(f"  - 加权采样: {weighted_sampler}")
-    
     # 根据现有结构，获取图像和对应路径，构建dataset
     train_img_paths, train_labels = img_dataloader(train_dir)
     val_img_paths, val_labels = img_dataloader(val_dir)
     train_dataset = VisibilityDataset(train_img_paths, train_labels, augment, is_train=True, resize_mode=train_resize_mode)
-    val_dataset = VisibilityDataset(val_img_paths, val_labels, False, is_train=False, resize_mode=val_resize_mode)
+    val_dataset = VisibilityDataset(val_img_paths, val_labels, augment=False, is_train=False, resize_mode=val_resize_mode)
 
-    # 创建采样器
+    # 创建采样器（根据是否weighted_sampler）
     if weighted_sampler:
         train_sampler = create_weighted_sampler(train_labels, balance_factor=config.BALANCE_FACTOR)
-        train_loader = DataLoader(train_dataset, 
-                                  batch_size=config.BATCH_SIZE, 
-                                  sampler=train_sampler,
-                                  num_workers=0,
-                                  pin_memory=True,
-                                  collate_fn=collate_fn_filter_none,
-                                  worker_init_fn=worker_init_fn)
+        train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, sampler=train_sampler, num_workers=0, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
     else:
-        train_loader = DataLoader(train_dataset, 
-                                  batch_size=config.BATCH_SIZE, 
-                                  shuffle=True,
-                                  num_workers=0,
-                                  pin_memory=True,
-                                  collate_fn=collate_fn_filter_none,
-                                  worker_init_fn=worker_init_fn)
+        train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
 
-    val_loader = DataLoader(val_dataset, 
-                            batch_size=config.BATCH_SIZE, 
-                            shuffle=False,
-                            num_workers=0,  # 增加多进程支持
-                            pin_memory=True,  # 启用内存固定
-                            collate_fn=collate_fn_filter_none,
-                            worker_init_fn=worker_init_fn)
+    val_loader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True, collate_fn=collate_fn_filter_none, worker_init_fn=worker_init_fn)
 
+    # 多返回train_labels，用于构建加权的loss function
     return train_loader, val_loader, train_labels
 
 
 if __name__ == "__main__":
-    train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=True)
+    train_loader, val_loader, train_labels = get_dataloader(config.TRAIN_DATA_ROOT, config.VAL_DATA_ROOT, config.USE_AUGMENTATION, weighted_sampler=False)
     for i, (original_image, augmented_image, label) in enumerate(train_loader):
         print(original_image.shape, augmented_image.shape, label.shape)
         break
