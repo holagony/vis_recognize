@@ -14,6 +14,9 @@ from datasets.feature_extraction import feature_extraction_block
 from models.resnet.resnet_cbam import resnet50_cbam
 from models.resnet.resnet import resnet50, resnet34, resnet18, JointModel
 from models.wuhan.encoder import Encoder
+from models.efficientnet.efficientnet import (
+    efficientnet_b0, efficientnet_b1,
+    efficientnet_b0_supcon, efficientnet_b1_supcon, efficientnet_b2_supcon)
 from utils.utils import set_seed, setup_logging, get_memory_usage, normalize_feature_channels, create_optimizer, get_lr_scheduler
 from utils.loss import create_loss_function, supcon_loss
 from utils.metric import calculate_metrics
@@ -321,6 +324,25 @@ def main():
     elif config.MODEL_TYPE == 'resnet50_supcon':
         base_encoder = resnet50(in_channels=11, use_se=True, use_dilation=True, dilation_rates=[1, 1, 1, 2], use_psa=False)
         model = JointModel(base_encoder, projection_dim=128, num_classes=config.NUM_CLASSES)
+    
+    # EfficientNet系列
+    elif config.MODEL_TYPE == 'efficientnet_b0':
+        model = efficientnet_b0(in_channels=11, num_classes=config.NUM_CLASSES, pretrained=False)
+    
+    elif config.MODEL_TYPE == 'efficientnet_b1':
+        model = efficientnet_b1(in_channels=11, num_classes=config.NUM_CLASSES, pretrained=False)
+    
+    elif config.MODEL_TYPE == 'efficientnet_b0_supcon':
+        model = efficientnet_b0_supcon(in_channels=11, projection_dim=128, num_classes=config.NUM_CLASSES, pretrained=False)
+    
+    elif config.MODEL_TYPE == 'efficientnet_b1_supcon':
+        model = efficientnet_b1_supcon(in_channels=11, projection_dim=128, num_classes=config.NUM_CLASSES, pretrained=False)
+    
+    elif config.MODEL_TYPE == 'efficientnet_b2_supcon':
+        model = efficientnet_b2_supcon(in_channels=11, projection_dim=128, num_classes=config.NUM_CLASSES, pretrained=False)
+    
+    else:
+        raise ValueError(f"不支持的模型类型: {config.MODEL_TYPE}")
 
     model = model.to(config.DEVICE)
 

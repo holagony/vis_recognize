@@ -21,6 +21,12 @@ VAL_RESIZE_MODE = 'center_crop'
 USE_AUGMENTATION = False  # 数据增强
 
 # ==================== 模型配置 ====================
+# 支持的模型类型:
+# ResNet系列: 'resnet18', 'resnet34', 'resnet50'
+# ResNet+SupCon: 'resnet18_supcon', 'resnet34_supcon', 'resnet50_supcon'
+# EfficientNet系列: 'efficientnet_b0', 'efficientnet_b1'
+# EfficientNet+SupCon: 'efficientnet_b0_supcon', 'efficientnet_b1_supcon', 'efficientnet_b2_supcon'
+# 其他: 'wuhan'
 MODEL_TYPE = 'resnet34_supcon'
 USE_SIMPLE_DEPTH = True  # True: MobileNet, False: DPT
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
