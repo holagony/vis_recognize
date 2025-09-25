@@ -15,7 +15,7 @@ TEST_DATA_ROOT = os.path.join(DATA_DIR, 'test')
 MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (256, 256)
+TARGET_INPUT_SIZE = (384, 384)
 TRAIN_RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
 VAL_RESIZE_MODE = 'center_crop'
 USE_AUGMENTATION = False  # 数据增强
@@ -62,7 +62,7 @@ EPS = 1e-8
 
 # ==================== 学习率调度配置 ====================
 # 预热参数
-WARMUP_EPOCHS = 5  # 预热轮数
+WARMUP_EPOCHS = 8  # 预热轮数
 WARMUP_FACTOR = 0.2  # 预热起始因子：从0.2倍学习率开始
 ETA_MIN = 1e-5  # 最小学习率
 
