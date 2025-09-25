@@ -79,3 +79,93 @@ def calculate_metrics(y_true, y_pred, num_classes=5):
         'class_counts': class_counts.tolist()
     }
     return info, report, cm
+
+
+def calculate_class_frequencies(labels, num_classes=5):
+    '''
+    计算类别频率，用于logit adjustment
+    Args:
+        labels: 标签列表或数组
+        num_classes: 类别数量
+    Returns:
+        dict: 包含类别频率和不平衡指标的字典
+    '''
+    if torch.is_tensor(labels):
+        labels = labels.cpu().numpy()
+    
+    labels = np.asarray(labels).flatten()
+    
+    # 计算每个类别的数量
+    class_counts = np.bincount(labels, minlength=num_classes)
+    total_samples = len(labels)
+    
+    # 计算频率
+    class_frequencies = class_counts / total_samples
+    
+    # 计算不平衡指标
+    max_freq = np.max(class_frequencies)
+    min_freq = np.min(class_frequencies[class_frequencies > 0])  # 排除0频率
+    imbalance_ratio = max_freq / min_freq if min_freq > 0 else float('inf')
+    
+    # 计算logit adjustment的调整值（tau=1.0时）
+    logit_adjustments = np.log(class_frequencies + 1e-12)
+    
+    # 计算有效样本数（Effective Number of Samples）
+    # 用于Class-Balanced Loss等方法
+    beta = 0.9999  # 常用值
+    effective_nums = (1 - np.power(beta, class_counts)) / (1 - beta)
+    cb_weights = (1 - beta) / effective_nums
+    cb_weights = cb_weights / np.sum(cb_weights) * num_classes  # 归一化
+    
+    return {
+        'class_counts': class_counts.tolist(),
+        'class_frequencies': class_frequencies.tolist(),
+        'total_samples': int(total_samples),
+        'imbalance_ratio': round(imbalance_ratio, 4),
+        'logit_adjustments': logit_adjustments.tolist(),
+        'effective_numbers': effective_nums.tolist(),
+        'cb_weights': cb_weights.tolist(),
+        'entropy': round(-np.sum(class_frequencies * np.log(class_frequencies + 1e-12)), 4)
+    }
+
+
+def analyze_prediction_bias(y_true, y_pred, num_classes=5):
+    '''
+    分析预测偏差，特别适用于不平衡数据集
+    Args:
+        y_true: 真实标签
+        y_pred: 预测标签
+        num_classes: 类别数量
+    Returns:
+        dict: 包含偏差分析的字典
+    '''
+    if torch.is_tensor(y_true):
+        y_true = y_true.cpu().numpy()
+    if torch.is_tensor(y_pred):
+        y_pred = y_pred.cpu().numpy()
+    
+    y_true = np.asarray(y_true).flatten()
+    y_pred = np.asarray(y_pred).flatten()
+    
+    # 计算真实分布和预测分布
+    true_dist = np.bincount(y_true, minlength=num_classes) / len(y_true)
+    pred_dist = np.bincount(y_pred, minlength=num_classes) / len(y_pred)
+    
+    # 计算KL散度
+    kl_div = np.sum(true_dist * np.log((true_dist + 1e-12) / (pred_dist + 1e-12)))
+    
+    # 计算每个类别的预测偏差
+    bias_per_class = pred_dist - true_dist
+    
+    # 计算总变差距离（Total Variation Distance）
+    tv_distance = 0.5 * np.sum(np.abs(bias_per_class))
+    
+    return {
+        'true_distribution': true_dist.tolist(),
+        'predicted_distribution': pred_dist.tolist(),
+        'bias_per_class': bias_per_class.tolist(),
+        'kl_divergence': round(kl_div, 6),
+        'tv_distance': round(tv_distance, 6),
+        'max_bias_class': int(np.argmax(np.abs(bias_per_class))),
+        'max_bias_value': round(float(np.max(np.abs(bias_per_class))), 6)
+    }

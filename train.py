@@ -202,6 +202,11 @@ def train_one_epoch(model, dataloader, criterion, optimizer, accumulation_steps,
 
 def validate(model, dataloader, criterion, supcon=False):
     model.eval()
+    
+    # 如果使用LogitAdjustmentLoss，设置验证时的行为
+    if hasattr(criterion, 'set_inference_mode'):
+        criterion.set_inference_mode(apply_adjustment=config.LOGIT_ADJUSTMENT_APPLY_IN_VAL)
+    
     running_loss = 0.0
     all_predictions = []
     all_labels = []
@@ -273,8 +278,9 @@ def main():
     parser.add_argument('--weighted_sampler', action='store_true', help='是否在dataloader中使用加权采样器')  # weighted_sampler/weighted_loss 二选一
     parser.add_argument('--weighted_loss', action='store_true', help='是否在损失函数中使用类别权重')  # focal alpha
     parser.add_argument('--early_stopping', action='store_true', help='是否启用早停')
-    parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal', 'dice_ce'], default='crossentropy')
+    parser.add_argument('--loss_type', type=str, choices=['crossentropy', 'focal', 'dice_ce', 'logit_adjustment'], default='crossentropy')
     parser.add_argument('--optimizer', type=str, choices=['adamw', 'sgd'], default='sgd', help='选择优化器类型 (adamw/sgd)')
+    parser.add_argument('--logit_adjustment_tau', type=float, default=None, help='logit adjustment的调整强度参数')
     parser.add_argument('--seed', type=int, default=6666)
     args = parser.parse_args()
 
@@ -284,11 +290,19 @@ def main():
     logger = setup_logging(config.MODEL_OUTPUT_DIR)
     tb_writer = SummaryWriter(log_dir=os.path.join(config.MODEL_OUTPUT_DIR, 'tensorboard'))
 
+    # 处理logit adjustment tau参数的默认值
+    if args.loss_type == 'logit_adjustment' and args.logit_adjustment_tau is None:
+        args.logit_adjustment_tau = config.LOGIT_ADJUSTMENT_TAU
+        logger.info(f"使用配置文件中的默认tau值: {args.logit_adjustment_tau}")
+
     # 基本信息打印
     logger.info(f"随机种子: {args.seed}")
     logger.info(f"批次大小: {config.BATCH_SIZE}, 有效批次大小: {config.BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS}")
     logger.info(f"加权策略: 采样器={args.weighted_sampler}, 类别权重={args.weighted_loss}")
     logger.info(f"损失函数: {args.loss_type}")
+    if args.loss_type == 'logit_adjustment':
+        logger.info(f"Logit Adjustment tau: {args.logit_adjustment_tau}")
+        logger.info(f"验证时应用adjustment: {config.LOGIT_ADJUSTMENT_APPLY_IN_VAL}")
     logger.info(f"优化器类型: {args.optimizer}")
     logger.info(f"模型: {config.MODEL_TYPE}")
 
@@ -353,7 +367,8 @@ def main():
                                      weight_mode=config.WEIGHT_MODE, # 计算权重方式
                                      weight_smoothing=False,
                                      smooth_factor=config.SMOOTH_FACTOR,
-                                     label_smoothing=config.LABEL_SMOOTHING)
+                                     label_smoothing=config.LABEL_SMOOTHING,
+                                     logit_adjustment_tau=args.logit_adjustment_tau)
 
     # 优化器
     optimizer = create_optimizer(model, optimizer_type=args.optimizer)

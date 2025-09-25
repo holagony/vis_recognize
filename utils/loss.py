@@ -32,6 +32,71 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
 
 
+class LogitAdjustmentLoss(nn.Module):
+    '''
+    Logit Adjustment Loss for Long-Tailed Recognition
+    论文: Long-tail learning via logit adjustment (ICLR 2021)
+    
+    通过调整logits来补偿训练数据中的类别不平衡，特别适用于长尾分布数据
+    '''
+    
+    def __init__(self, class_frequencies, tau=1.0, base_loss='crossentropy', label_smoothing=0.0, class_weights=None):
+        '''
+        Args:
+            class_frequencies: 每个类别在训练集中的频率 [num_classes]
+            tau: 调整强度参数，越大调整越强
+            base_loss: 基础损失函数类型 ('crossentropy', 'focal')
+            label_smoothing: 标签平滑参数
+            class_weights: 类别权重（可选）
+        '''
+        super(LogitAdjustmentLoss, self).__init__()
+        
+        # 计算logit adjustment偏移量
+        # adjustment = tau * log(class_frequencies)
+        self.register_buffer('logit_adjustments', 
+                           tau * torch.log(torch.FloatTensor(class_frequencies) + 1e-12))
+        
+        self.base_loss = base_loss.lower()
+        
+        if self.base_loss == 'crossentropy':
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights, 
+                                               label_smoothing=label_smoothing)
+        elif self.base_loss == 'focal':
+            # 如果使用focal loss作为基础损失，需要传入alpha参数
+            if class_weights is not None:
+                alpha = class_weights / class_weights.sum() * len(class_weights)
+            else:
+                alpha = torch.ones(len(class_frequencies))
+            self.criterion = FocalLoss(alpha=alpha, gamma=2.0)
+        else:
+            raise ValueError(f"Unsupported base loss: {base_loss}")
+    
+    def forward(self, logits, targets):
+        '''
+        Args:
+            logits: 模型输出的logits [batch_size, num_classes]
+            targets: 真实标签 [batch_size]
+        '''
+        # 应用logit adjustment
+        # 在训练时，对logits进行调整以补偿类别不平衡
+        if self.training:
+            adjusted_logits = logits + self.logit_adjustments.unsqueeze(0)
+        else:
+            # 在推理时，可以选择是否应用adjustment
+            # 通常在验证/测试时不应用，以获得更好的校准
+            adjusted_logits = logits
+            
+        return self.criterion(adjusted_logits, targets)
+    
+    def set_inference_mode(self, apply_adjustment=False):
+        '''
+        设置推理模式下是否应用logit adjustment
+        Args:
+            apply_adjustment: 是否在推理时应用adjustment
+        '''
+        self.apply_adjustment_in_inference = apply_adjustment
+
+
 class DiceCELoss(nn.Module):
     '''
     组合损失函数：Dice Loss + Cross Entropy Loss
@@ -85,16 +150,17 @@ class DiceCELoss(nn.Module):
         return dice_loss.mean()
 
 
-def create_loss_function(labels, loss_type='crossentropy', use_weights=False, weight_mode='balanced', weight_smoothing=False, smooth_factor=0.05, label_smoothing=0.05):
+def create_loss_function(labels, loss_type='crossentropy', use_weights=False, weight_mode='balanced', weight_smoothing=False, smooth_factor=0.05, label_smoothing=0.05, logit_adjustment_tau=None):
     '''
-    创建损失函数 - 支持CrossEntropyLoss、FocalLoss和DiceCELoss
+    创建损失函数 - 支持CrossEntropyLoss、FocalLoss、DiceCELoss和LogitAdjustmentLoss
     labels: 训练标签
-    loss_type: 损失函数类型 ('crossentropy', 'focal', 'dice_ce')
+    loss_type: 损失函数类型 ('crossentropy', 'focal', 'dice_ce', 'logit_adjustment')
     use_weights: 是否在损失函数中使用类别权重，计算得到的权重用在ce loss上面
     weight_mode: 权重的计算模式 ('balanced', 'sqrt_balanced')
     weight_smoothing: 是否对计算出的类别权重进行平滑处理
     smooth_factor: 权重平滑因子，减少极端权重（仅当weight_smoothing=True时有效）
     label_smoothing: crossentropy的时候使用
+    logit_adjustment_tau: logit adjustment的调整强度参数，如果为None则使用配置文件中的值
     '''
 
     # 计算类别权重
@@ -181,6 +247,31 @@ def create_loss_function(labels, loss_type='crossentropy', use_weights=False, we
 
     elif loss_type.lower() == 'dice_ce':
         return DiceCELoss(dice_weight=config.DICE_WEIGHT, ce_weight=config.CE_WEIGHT, dice_smooth=config.DICE_SMOOTH, ce_label_smoothing=label_smoothing, class_weights=weights_tensor)
+    
+    elif loss_type.lower() == 'logit_adjustment':
+        # 计算类别频率
+        label_counts = Counter(labels)
+        total_samples = len(labels)
+        
+        # 计算每个类别的频率
+        class_frequencies = []
+        for i in range(config.NUM_CLASSES):
+            if i in label_counts:
+                frequency = label_counts[i] / total_samples
+            else:
+                frequency = 1e-12  # 避免log(0)
+            class_frequencies.append(frequency)
+        
+        # 使用传入的tau参数或配置文件中的值
+        tau = logit_adjustment_tau if logit_adjustment_tau is not None else config.LOGIT_ADJUSTMENT_TAU
+        
+        return LogitAdjustmentLoss(
+            class_frequencies=class_frequencies,
+            tau=tau,
+            base_loss=config.LOGIT_ADJUSTMENT_BASE_LOSS,
+            label_smoothing=label_smoothing,
+            class_weights=weights_tensor
+        )
 
     else:  # crossentropy
         return nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=label_smoothing)

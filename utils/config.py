@@ -27,7 +27,7 @@ USE_AUGMENTATION = False  # 数据增强
 # EfficientNet系列: 'efficientnet_b0', 'efficientnet_b1'
 # EfficientNet+SupCon: 'efficientnet_b0_supcon', 'efficientnet_b1_supcon', 'efficientnet_b2_supcon'
 # 其他: 'wuhan'
-MODEL_TYPE = 'resnet34_supcon'
+MODEL_TYPE = 'wuhan'
 USE_SIMPLE_DEPTH = True  # True: MobileNet, False: DPT
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 
@@ -96,6 +96,11 @@ CE_WEIGHT = 0.4  # 0.4 / 0.5
 # Dice Loss
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子
 DICE_WEIGHT = 0.5  # Dice Loss权重
+
+# Logit Adjustment 参数
+LOGIT_ADJUSTMENT_TAU = 1.0  # 调整强度参数，越大调整越强
+LOGIT_ADJUSTMENT_BASE_LOSS = 'crossentropy'  # 基础损失函数类型 ('crossentropy', 'focal')
+LOGIT_ADJUSTMENT_APPLY_IN_VAL = False  # 是否在验证时应用logit adjustment
 
 # ==================== 特征提取配置 ====================
 # 传输通道参数
