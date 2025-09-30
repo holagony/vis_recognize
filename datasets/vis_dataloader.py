@@ -92,7 +92,8 @@ def worker_init_fn(worker_id):
     DataLoader worker初始化函数，
     确保每个worker有不同但确定的随机种子
     '''
-    worker_seed = torch.initial_seed() % 2**32
+    # 使用worker_id和torch的初始种子来生成唯一的worker种子
+    worker_seed = (torch.initial_seed() + worker_id) % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
