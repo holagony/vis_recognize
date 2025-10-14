@@ -12,6 +12,43 @@ import cv2
 from PIL import Image
 import warnings
 warnings.filterwarnings('ignore')
+import math
+
+def compute_jsd_consistency(train_tsne, val_tsne, bins=50):
+    """Compute Jensen-Shannon divergence between 2D t-SNE distributions.
+    Returns (jsd_value_0_to_1, conclusion_str).
+    """
+    # Determine common bounds
+    xmin = min(train_tsne[:, 0].min(), val_tsne[:, 0].min())
+    xmax = max(train_tsne[:, 0].max(), val_tsne[:, 0].max())
+    ymin = min(train_tsne[:, 1].min(), val_tsne[:, 1].min())
+    ymax = max(train_tsne[:, 1].max(), val_tsne[:, 1].max())
+
+    # Compute 2D histograms
+    H_train, xedges, yedges = np.histogram2d(train_tsne[:, 0], train_tsne[:, 1],
+                                             bins=bins, range=[[xmin, xmax], [ymin, ymax]])
+    H_val, _, _ = np.histogram2d(val_tsne[:, 0], val_tsne[:, 1],
+                                 bins=bins, range=[[xmin, xmax], [ymin, ymax]])
+
+    # Normalize to probability distributions, add epsilon to avoid zeros
+    eps = 1e-12
+    P = H_train.astype(np.float64)
+    Q = H_val.astype(np.float64)
+    P = (P + eps) / (P.sum() + eps * P.size)
+    Q = (Q + eps) / (Q.sum() + eps * Q.size)
+
+    M = 0.5 * (P + Q)
+
+    # Use log base 2 so JSD is in [0, 1]
+    def kl_div(A, B):
+        return np.sum(A * np.log2(A / B))
+
+    jsd = 0.5 * kl_div(P, M) + 0.5 * kl_div(Q, M)
+
+    # Simple rule-of-thumb for consistency
+    conclusion = "分布一致" if jsd < 0.1 else "分布不一致"
+
+    return float(jsd), conclusion
 
 def extract_image_features(image_path):
     """Extract comprehensive features from an image"""
@@ -142,6 +179,10 @@ def create_tsne_visualization(category, data_dir='./data', max_samples_per_split
     # Split results back
     train_tsne = tsne_results[:len(train_features)]
     val_tsne = tsne_results[len(train_features):]
+
+    # Compute distribution consistency metric (Jensen-Shannon Divergence)
+    jsd_value, jsd_conclusion = compute_jsd_consistency(train_tsne, val_tsne, bins=60)
+    print(f"分布一致性指标 (JSD, 0~1): {jsd_value:.4f} -> {jsd_conclusion}")
     
     # Create visualization
     plt.figure(figsize=(12, 8))
@@ -159,9 +200,11 @@ def create_tsne_visualization(category, data_dir='./data', max_samples_per_split
     plt.ylabel('Component 2', fontsize=12)
     plt.legend(fontsize=12)
     plt.grid(True, alpha=0.3)
-    
+
     # Add statistics
-    plt.figtext(0.02, 0.02, f'Perplexity: 30, Iterations: 1000, Features: {all_features.shape[1]}', 
+    plt.figtext(0.02, 0.02,
+                f'Perplexity: 30, Iterations: 1000, Features: {all_features.shape[1]}\n'
+                f'JSD(Train vs Val): {jsd_value:.4f} -> {jsd_conclusion}',
                 fontsize=10, style='italic')
     
     plt.tight_layout()
@@ -182,8 +225,8 @@ def main():
     
     # You can modify these parameters
     categories_to_analyze = [2, 3, 4]  # Categories to analyze
-    data_directory = r'c:\Users\mjynj\Desktop\vis_recognize\img_data\data'  # Path to your data directory
-    max_samples = 800  # Maximum samples per split to speed up processing
+    data_directory = r'C:\Users\mjynj\Desktop\traffic\vis_recognize\img_data\data'  # Path to your data directory
+    max_samples = 2000  # Maximum samples per split to speed up processing
     
     for category in categories_to_analyze:
         try:
