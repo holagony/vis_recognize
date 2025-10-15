@@ -21,16 +21,16 @@ class DPTSceneDepthBranch(nn.Module):
     DPT模型可选"dpt_large" or "dpt_hybrid"
     '''
 
-    def __init__(self, dpt_model_type='dpt_hybrid', device='cpu'):
+    def __init__(self, dpt_model_type='dpt_large', device='cpu'):
         super().__init__()
         self.device = device
 
         if dpt_model_type == "dpt_large":
-            dpt_weight_path = "dptransformer/weights/dpt_large-midas-2f21e586.pt"
+            dpt_weight_path = "model_hub/dptransformer/weights/dpt_large-midas-2f21e586.pt"
             backbone = "vitl16_384"
 
         elif dpt_model_type == "dpt_hybrid":
-            dpt_weight_path = "dptransformer/weights/dpt_hybrid-midas-501f0c75.pt"
+            dpt_weight_path = "model_hub/dptransformer/weights/dpt_hybrid-midas-501f0c75.pt"
             backbone = "vitb_rn50_384"
 
         # 创建DPT模型
