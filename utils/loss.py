@@ -80,7 +80,9 @@ class LogitAdjustmentLoss(nn.Module):
         # 应用logit adjustment
         # 在训练时，对logits进行调整以补偿类别不平衡
         if self.training:
-            adjusted_logits = logits + self.logit_adjustments.unsqueeze(0)
+            # 确保logit_adjustments与logits在同一设备上
+            adjustments = self.logit_adjustments.to(logits.device)
+            adjusted_logits = logits + adjustments.unsqueeze(0)
         else:
             # 在推理时，可以选择是否应用adjustment
             # 通常在验证/测试时不应用，以获得更好的校准

@@ -500,30 +500,6 @@ def main():
 
 
 if __name__ == '__main__':
-    # 模拟命令行参数
-    # sys.argv = [
-    #     'train.py',
-    #     '--loss_type', 'focal',  # 改为focal loss
-    #     '--weighted_sampler',
-    #     '--weighted_loss', # --weighted_loss
-    #     '--early_stopping'
-    # ]
-
-    # focal + weighted_loss + resnet50 + se + dilation + 余弦退火
-    # sys.argv = [
-    #     'train.py',
-    #     '--loss_type', 'focal',  # 改为focal loss
-    #     '--early_stopping'
-    # ]
-
-    # crossentropy + weighted_loss + resnet34 + se + dilation + 余弦退火 + 26通道
-    # sys.argv = [
-    #     'train.py',
-    #     '--loss_type', 'dice_ce',  # 改为focal loss
-    #     '--weighted_loss',
-    #     '--early_stopping'
-    # ]
-
     # 使用SGD优化器的示例
     sys.argv = [
         'train.py',
@@ -533,4 +509,11 @@ if __name__ == '__main__':
         '--optimizer', 'sgd',
     ]
 
+    # sys.argv = [
+    #     'train.py',
+    #     '--early_stopping',
+    #     '--loss_type', 'logit_adjustment',
+    #     '--optimizer', 'sgd',
+    #     '--logit_adjustment_tau', '1.5',
+    # ]
     main()

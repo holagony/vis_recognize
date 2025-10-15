@@ -15,7 +15,7 @@ TEST_DATA_ROOT = os.path.join(DATA_DIR, 'test')
 MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
-TARGET_INPUT_SIZE = (384, 384)
+TARGET_INPUT_SIZE = (256, 256)
 TRAIN_RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
 VAL_RESIZE_MODE = 'center_crop'
 USE_AUGMENTATION = False  # 数据增强
@@ -27,7 +27,7 @@ USE_AUGMENTATION = False  # 数据增强
 # EfficientNet系列: 'efficientnet_b0', 'efficientnet_b1'
 # EfficientNet+SupCon: 'efficientnet_b0_supcon', 'efficientnet_b1_supcon', 'efficientnet_b2_supcon'
 # 其他: 'wuhan'
-MODEL_TYPE = 'wuhan'
+MODEL_TYPE = 'resnet34_supcon'
 USE_SIMPLE_DEPTH = True  # True: MobileNet, False: DPT
 SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 
@@ -84,14 +84,14 @@ FOCAL_ALPHA = [0.3, 0.4, 0.8, 1.0, 0.9]
 # 根据类别计算权重
 WEIGHT_MODE = 'balanced'
 SMOOTH_FACTOR = 0.05  # 权重平滑
-LABEL_SMOOTHING = 0.05  # 标签平滑
+LABEL_SMOOTHING = 0.05  # 标签平滑 0.05
 
 # SupCon loss
 SUPCON_TEMPERATURE = 0.07  # 温度参数
 SUPCON_WEIGHT = 1  # 0.6
 
 # CE loss
-CE_WEIGHT = 0.4  # 0.4 / 0.5
+CE_WEIGHT = 0.5  # 0.4 / 0.5
 
 # Dice Loss
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子
