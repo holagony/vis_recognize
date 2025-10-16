@@ -147,7 +147,7 @@ def create_balanced_visibility_split(
 
 
 if __name__ == "__main__":
-    SOURCE_ROOT_DIR = r'D:\Project\traffic\data\Visibility\data'
+    SOURCE_ROOT_DIR = r'C:\Users\mjynj\Desktop\vis_recognize\img_data\data_anhui'
     data_root = os.path.join(os.path.dirname(__file__), "..", "data")
     train_dir = os.path.join(data_root, "train")
     val_dir = os.path.join(data_root, "val")
@@ -160,5 +160,5 @@ if __name__ == "__main__":
                                                 train_ratio=0.75, 
                                                 val_ratio=0.15, 
                                                 test_ratio=0.10, 
-                                                random_state=42)
+                                                random_state=6666)
     print(stats_df)
