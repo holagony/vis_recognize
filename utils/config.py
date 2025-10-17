@@ -16,8 +16,8 @@ MODEL_OUTPUT_DIR = os.path.join(RESULT_DIR, 'models')
 
 # 图像预处理
 TARGET_INPUT_SIZE = (256, 256)
-TRAIN_RESIZE_MODE = 'random_crop'  # 'direct', 'pad', 'center_crop', 'random_crop'
-VAL_RESIZE_MODE = 'center_crop'
+TRAIN_RESIZE_MODE = 'direct'  # 'direct', 'pad', 'center_crop', 'random_crop'
+VAL_RESIZE_MODE = 'direct'
 USE_AUGMENTATION = False  # 数据增强
 
 # ==================== 模型配置 ====================
@@ -33,7 +33,7 @@ SIMPLE_DEPTH_MODEL_PATH = './model_hub/depth_scene.pth'
 
 # ==================== 训练基础配置 ====================
 # 基本训练参数
-BATCH_SIZE = 128
+BATCH_SIZE = 96 # 96/128
 GRADIENT_ACCUMULATION_STEPS = 1  # 梯度累积
 EPOCHS = 80
 NUM_CLASSES = 5
@@ -49,20 +49,20 @@ USE_SAMPLER_REPLACEMENT = False  # 是否采样有放回
 
 # ==================== 优化器配置 ====================
 # SGD 参数
-LEARNING_RATE_SGD = 5e-2
+LEARNING_RATE_SGD = 5e-2 # 5e-2/6.67e-2
 SGD_MOMENTUM = 0.9  # SGD动量参数
 SGD_WEIGHT_DECAY = 1e-4  # SGD权重衰减（通常比AdamW小）
 SGD_NESTEROV = False  # 是否使用Nesterov动量
 
 # AdamW 参数
-LEARNING_RATE_ADAM = 1e-4
+LEARNING_RATE_ADAM = 1e-4 # 1.2e-4
 WEIGHT_DECAY = 1e-3  # 默认1e-2
 BETAS = (0.9, 0.999)
 EPS = 1e-8
 
 # ==================== 学习率调度配置 ====================
 # 预热参数
-WARMUP_EPOCHS = 8  # 预热轮数
+WARMUP_EPOCHS = 5  # 预热轮数
 WARMUP_FACTOR = 0.2  # 预热起始因子：从0.2倍学习率开始
 ETA_MIN = 1e-5  # 最小学习率
 
@@ -73,8 +73,8 @@ COSINE_RESTART_MULT = 2.0  # 重启后学习率倍数
 
 # SGD学习率调度
 SGD_USE_STEP_LR = True  # StepLR调度器
-SGD_STEP_SIZE = 5  # StepLR的步长
-SGD_GAMMA = 0.7  # StepLR的学习率衰减因子
+SGD_STEP_SIZE = 5  # StepLR的步长 5/6
+SGD_GAMMA = 0.7  # StepLR的学习率衰减因子 0.7/0.75
 
 # ==================== 损失函数配置 ====================
 # Focal Loss 参数
@@ -88,10 +88,10 @@ LABEL_SMOOTHING = 0.05  # 标签平滑 0.05
 
 # SupCon loss
 SUPCON_TEMPERATURE = 0.07  # 温度参数
-SUPCON_WEIGHT = 1  # 0.6
+SUPCON_WEIGHT = 0.6  # 0.6
 
 # CE loss
-CE_WEIGHT = 0.5  # 0.4 / 0.5
+CE_WEIGHT = 0.4  # 0.4 / 0.5
 
 # Dice Loss
 DICE_SMOOTH = 1e-6  # Dice Loss平滑因子
