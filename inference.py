@@ -142,7 +142,7 @@ def evaluate_dataset(model, data_loader):
                 features, num_channels = feature_extraction_block(original_images, augmented_images)
                 features = normalize_feature_channels(features, depth_ch=1) # 各通道标准化
 
-            if config.MODEL_TYPE == 'supcon':
+            if 'supcon' in config.MODEL_TYPE:
                 h, z, logits = model(features)
                 outputs = logits  # 使用分类输出进行预测
             else:
@@ -224,7 +224,7 @@ def run_single_image_inference(image_path, model_path):
 
     with torch.no_grad():
         # 根据模型类型进行推理
-        if config.MODEL_TYPE == 'supcon':
+        if 'supcon' in config.MODEL_TYPE:
             h, z, logits = model(features)
             outputs = logits  # 使用分类输出进行预测
         else:
@@ -258,7 +258,7 @@ if __name__ == "__main__":
     # model_path = r'C:/Users/mjynj/Desktop/Encoder_30_test_loss-0.5486_test_dice-0.8457.pt'
     # data_path = r'C:\Users\mjynj\Desktop\vis\app\data\highway_validate_data'
 
-    model_path = r'C:/Users/mjynj/Desktop/vis_best.pth'
+    model_path = r'C:\Users\mjynj\Desktop\traffic\vis_recognize\result\vis_best.pth'
     data_path = config.TEST_DATA_ROOT
     
     # 检查模型类型
