@@ -4,17 +4,22 @@ channels:
   - pytorch
   - defaults
 dependencies:
-  - pytorch=2.1.2
-  - torchaudio=2.1.2
+  - pytorch
+  - torchaudio
   - torchvision
-  - cpuonly=2.0
-  - einops=0.7.0
-  - pandas=1.5.3
+  - cpuonly
+  - numpy
+  - scikit-learn
+  - pillow
+  - psutil
+  - einops
+  - pandas
   - tqdm
   - simplejson
   - flask
   - celery
   - gevent
+  - timm
   - pip:
       - gunicorn
       - redis
