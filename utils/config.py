@@ -117,12 +117,6 @@ TRANSMISSION_GUIDED_EPS = 1e-3
 # 3. 总学习率变化范围：2e-5 → 1e-4 → 5e-6
 # 4. 可选：使用余弦重启策略，每10轮重启一次学习率
 
-# Focal Loss alpha权重说明：
-# - FOCAL_ALPHA = None: 自动计算类别特定权重（推荐）
-# - FOCAL_ALPHA = [0.1, 0.3, 0.8, 1.0, 0.5]: 手动设置每个类别的权重
-# - 权重范围：[0.1, 1.0]，数值越大表示对该类别越关注
-# - 建议：少数类别（如类别2、3）设置更高的权重（0.8-1.0）
-
 # SGD优化器配置说明：
 # 1. 基本参数：
 #    - OPTIMIZER_TYPE: 选择优化器类型 ('adamw' 或 'sgd')
@@ -140,3 +134,7 @@ TRANSMISSION_GUIDED_EPS = 1e-3
 #    - 配合StepLR或MultiStepLR调度器效果更好
 #    - 对于计算机视觉任务，SGD+动量通常能获得更好的泛化性能
 #    - 训练初期可能需要更多轮次才能收敛
+
+# Api接口
+IN_DATA_DIR = '/data'  # 容器内路径
+OUT_DATA_DIR = '/data'
