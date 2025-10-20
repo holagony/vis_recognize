@@ -1,7 +1,7 @@
 import json
 import simplejson
 from flask import Blueprint, request, jsonify
-from flask_api.vis_handler import visibility_inference
+from flask_api.vis_handler import vis_inference
 
 visibility_module = Blueprint('visibility_module', __name__)
 
@@ -13,7 +13,7 @@ def run_visibility():
     '''
     json_str = request.get_data(as_text=True)  # 获取JSON字符串
     data_json = json.loads(json_str)
-    result_dict = visibility_inference(data_json)
+    result_dict = vis_inference(data_json)
     return_data = simplejson.dumps({'code': 200, 
                                     'msg': 'success',
                                     'data': result_dict}, ensure_ascii=False, ignore_nan=True)

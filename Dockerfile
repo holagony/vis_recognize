@@ -53,6 +53,13 @@ RUN wget --quiet https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Minicon
 # 配置conda环境
 ENV PATH=$CONDA_DIR/bin:$PATH
 
+# 配置conda频道和接受服务条款
+RUN conda config --add channels conda-forge && \
+    conda config --set channel_priority strict && \
+    conda config --set auto_activate_base false && \
+    echo "yes" | conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    echo "yes" | conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
 # 配置pip镜像源
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
     pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
@@ -72,7 +79,7 @@ ENV PATH=$CONDA_DIR/envs/myconda/bin:$PATH
 COPY --chown=$UID:$GID . .
 
 # 暴露端口
-EXPOSE 5088
+EXPOSE 8088
 
 # 启动命令
 CMD ["supervisord", "-c", "./flask_api/supervisor/supervisord.conf"]

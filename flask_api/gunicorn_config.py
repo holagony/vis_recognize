@@ -13,7 +13,7 @@ errorlog = '/logs/error.log'
 # logconfig_dict = {}
 
 monkey.patch_all()
-bind = "0.0.0.0:5088"
+bind = "0.0.0.0:8088"
 worker_class = "gevent"
 workers = 4
 timeout = 300

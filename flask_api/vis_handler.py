@@ -135,7 +135,13 @@ def run_batch_image_inference(image_paths, model_path):
     results = []
     for i, image_path in enumerate(image_paths):
         filename = os.path.basename(image_path)
-        result = {'condition': 'RV', 'filename': filename, 'level': predicted_classes[i].item(), 'value': visibility_values[i], 'confidence': confidences[i].item()}
+        result = {
+            'condition': 'RV',
+            'filename': filename,
+            'level': int(predicted_classes[i].item()),
+            'value': round(float(visibility_values[i]), 1),
+            'confidence': round(float(confidences[i].item()), 3)
+        }
         results.append(result)
 
     return results
@@ -146,7 +152,7 @@ def vis_inference(data_json):
     能见度等级推理
     '''
     uuid4 = uuid.uuid4().hex
-    data_dir = os.path.join(config.OUT_DATA_DIR, uuid4)  # 容器外路径
+    data_dir = os.path.join(config.IN_DATA_DIR, uuid4)  # 容器内路径
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
         os.chmod(data_dir, 0o007 | 0o070 | 0o700)
@@ -157,10 +163,10 @@ def vis_inference(data_json):
 
     total_path = []
     for path in imgPaths:
-        imgname = os.path.basename(path)  # 使用os.path.basename获取文件名，兼容所有操作系统
-        save_path = os.path.join(data_dir, imgname)
-
         if 'http' in path:
+            imgname = os.path.basename(path)  # 使用os.path.basename获取文件名，兼容所有操作系统
+            save_path = os.path.join(data_dir, imgname)
+
             # 禁用SSL证书验证
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
@@ -171,11 +177,9 @@ def vis_inference(data_json):
             urllib.request.install_opener(opener)
             urllib.request.urlretrieve(path, save_path)
         else:
-            shutil.copy2(path, save_path)
+            save_path = path.replace(config.OUT_DATA_DIR, config.IN_DATA_DIR)
 
-        # 容器外路径转换为容器内路径
-        container_path = save_path.replace(config.OUT_DATA_DIR, config.IN_DATA_DIR)
-        total_path.append(container_path)
+        total_path.append(save_path)
 
     # 推理
     model_path = './model_hub/vis_best.pth'
@@ -189,14 +193,16 @@ def vis_inference(data_json):
 
 if __name__ == "__main__":
     import time
+    import simplejson
     t1 = time.time()
     data_json = dict()
-    test_path = r'C:\Users\mjynj\Desktop\test'
-    test_paths = glob.glob(os.path.join(test_path, '*.jpg'))
-    # data_json['imgPaths'] = ['https://www.jiazhao.com/images/Articles/month_1411/201411261020332530.png']
+    # test_path = r'C:\Users\mjynj\Desktop\test'
+    # test_paths = glob.glob(os.path.join(test_path, '*.jpg'))
+    # data_json['imgPaths'] = test_paths
+    data_json['imgPaths'] = ['https://www.jiazhao.com/images/Articles/month_1411/201411261020332530.png']
 
-    data_json['imgPaths'] = test_paths
     result_dict = vis_inference(data_json)
+    return_data = simplejson.dumps({'code': 200, 'msg': 'success', 'data': result_dict}, ensure_ascii=False, ignore_nan=True)
     print(result_dict)
     t2 = time.time()
     print(t2 - t1)
