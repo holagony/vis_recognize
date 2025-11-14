@@ -203,8 +203,7 @@ def create_tsne_visualization(category, data_dir='./data', max_samples_per_split
 
     # Add statistics
     plt.figtext(0.02, 0.02,
-                f'Perplexity: 30, Iterations: 1000, Features: {all_features.shape[1]}\n'
-                f'JSD(Train vs Val): {jsd_value:.4f} -> {jsd_conclusion}',
+                f'Perplexity: 30, Iterations: 1000, Features: {all_features.shape[1]}',
                 fontsize=10, style='italic')
     
     plt.tight_layout()
@@ -224,9 +223,9 @@ def main():
     print("=" * 60)
     
     # You can modify these parameters
-    categories_to_analyze = [2, 3, 4]  # Categories to analyze
-    data_directory = r'C:\Users\mjynj\Desktop\traffic\vis_recognize\img_data\data'  # Path to your data directory
-    max_samples = 2000  # Maximum samples per split to speed up processing
+    categories_to_analyze = [2, 3]  # Categories to analyze
+    data_directory = r'C:\Users\mjynj\Desktop\vis_recognize\img_data\data'  # Path to your data directory
+    max_samples = 800  # Maximum samples per split to speed up processing
     
     for category in categories_to_analyze:
         try:

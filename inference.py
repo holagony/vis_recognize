@@ -235,7 +235,7 @@ def run_single_image_inference(image_path, model_path):
 
 def map_probability_to_visibility(predicted_classes, confidences):
     visibility_ranges = [(3000, 8000), (250, 500), (150, 200), (80, 100), (20, 50)]
-    
+
     return [visibility_ranges[idx][0] + (visibility_ranges[idx][1] - visibility_ranges[idx][0]) * confidences[i] for i, idx in enumerate(predicted_classes)]
 
 
@@ -254,14 +254,14 @@ def run_batch_image_inference(image_paths, model_path):
     # 获取批次数据
     batch_data = next(iter(dataloader))
     original_images, augmented_images, labels = batch_data
-    
+
     # 进行特征提取
     if config.MODEL_TYPE == 'wuhan':
         features = original_images
     else:
         features, num_channels = feature_extraction_block(original_images, augmented_images)
         features = normalize_feature_channels(features, depth_ch=1)
-    
+
     batch_tensor = features.to(config.DEVICE)
 
     with torch.no_grad():
@@ -289,7 +289,11 @@ def run_batch_image_inference(image_paths, model_path):
 
 
 if __name__ == "__main__":
-    model_path = r'C:\Users\mjynj\Desktop\traffic\vis_recognize\result\vis_best.pth'
-    image_paths = r'C:\Users\mjynj\Desktop\test'
-    image_paths = glob.glob(os.path.join(image_paths, '*.jpg'))
-    result = run_batch_image_inference(image_paths, model_path)
+    model_path = r'C:\Users\mjynj\Desktop\vis_recognize\results\models\vis_epoch_24.pth'
+    # image_paths = r'C:\Users\mjynj\Desktop\test'
+    # image_paths = glob.glob(os.path.join(image_paths, '*.jpg'))
+    # result = run_batch_image_inference(image_paths, model_path)
+    data_path = r'C:\Users\mjynj\Desktop\vis_recognize\img_data\data\test'
+    info, report = run_dataset_evaluation(model_path, data_path)
+    print(info)
+    print(report)
