@@ -1,6 +1,5 @@
 /img_data
 /model_hub
 /results
+/.spyproject
 __pycache__/
-/data
-.spyproject
